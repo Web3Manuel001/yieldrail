@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - scripts
 
 # Native/load-bearing install scripts must be explicitly approved.
 allowBuilds:

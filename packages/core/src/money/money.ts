@@ -10,7 +10,9 @@ export function stroops(n: bigint): Stroops {
 /** Parse a decimal string ("100.5") to stroops. Rejects >7dp, negatives, junk. NO float. */
 export function parseUnits(decimal: string): Stroops {
   if (!/^\d+(\.\d{1,7})?$/.test(decimal)) throw new RangeError(`invalid amount: ${decimal}`);
-  const [whole, frac = ''] = decimal.split('.');
+  const parts = decimal.split('.');
+  const whole = parts[0] ?? '0';
+  const frac = parts[1] ?? '';
   const fracPadded = (frac + '0000000').slice(0, 7);
   return stroops(BigInt(whole) * STROOPS_PER_UNIT + BigInt(fracPadded));
 }
