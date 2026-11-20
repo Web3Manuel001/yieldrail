@@ -1,19 +1,13 @@
 node_modules/
 dist/
-coverage/
-*.tsbuildinfo
-
-# Secrets and local runtime state
+build/
 .env
 .env.*
 !.env.example
+*.log
 state.json
-
-# SQLite artifacts
-data/
+*.sqlite
 *.db
-*.db-journal
-*.db-wal
-*.db-shm
-
+coverage/
 .DS_Store
+contracts/**/target/

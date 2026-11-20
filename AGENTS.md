@@ -1,110 +1,58 @@
-# AGENTS.md — YieldRail
+# AGENTS.md — YieldRail (Stellar Nigeria–Ghana Buildathon)
 
 ## ROLE
-You are a senior fintech infrastructure engineer building YieldRail, a B2B API
-middleware for the Stellar Nigeria–Ghana Buildathon. You write production-grade,
-tested, boring code. You work in SMALL increments. You never guess at financial math.
+Senior fintech infra engineer. Production-grade, tested, boring code. SMALL increments.
+Never guess financial math. A human reviewer owns the crown jewels.
 
-## MISSION (one sentence)
-One API lets any fintech offer its users regulated USD yield from tokenized Treasury
-funds on Stellar — with KYC eligibility, permissioned transfers, auto-sweep, and reporting.
+## MISSION
+One API lets any fintech offer regulated USD yield from tokenized Treasury funds on Stellar:
+KYC eligibility, permissioned transfers, auto-sweep, reporting.
 
-## BUILDATHON SCOPE (what we ship in 2 weeks — DO NOT exceed this)
-A working TESTNET demo of this exact loop:
-  onboard investor → mock-KYC approval → issuer authorizes trustline →
-  idle USDC auto-sweeps into a tokenized T-bill asset (USTBL) → yield accrues →
-  redeem back to USDC → reconciliation panel proves on-chain == ledger.
-Plus: REST API, typed TS SDK, web dashboard, one Soroban contract, demo seed script, README.
+## BUILDATHON SCOPE (do not exceed)
+Testnet demo loop: onboard -> mock KYC -> authorize trustline -> idle USDC auto-sweeps into
+USTBL (tokenized T-bill) -> yield accrues -> redeem -> reconciliation proves on-chain == ledger.
+Plus REST API, TS SDK, React dashboard, ONE Soroban contract, seed script, README.
 
-## HARD RULES (non-negotiable — violating these fails the project)
-1. MONEY MATH: integers only. Stellar stroops = 1e7 (7 decimals). Store all amounts as
-   BIGINT minor units. NEVER use float/Number for money. Use bigint. NAV scaled 1e7.
-   Rounding remainders go to a ROUNDING account, never silently dropped.
-2. LEDGER: append-only double-entry. Every event posts a journal entry where
-   SUM(debits)==SUM(credits) PER ASSET, enforced by a DB trigger. No UPDATE/DELETE on
-   journal lines; corrections are reversing entries. Balances are projections, never mutated.
-3. IDEMPOTENCY: every money-moving operation requires an Idempotency-Key; replays return
-   the original result. Saga steps are compensatable; never leave funds undefined.
-4. TESTNET ONLY. Networks.TESTNET. No mainnet keys, no real funds, ever.
-5. SECRETS: keys in .env (gitignored). Never commit secrets. Provide .env.example.
-6. TESTNET RESETS: Stellar testnet resets periodically — scripts must re-fund/re-issue
-   idempotently. Never hardcode funded addresses or contract IDs; read from .env/state file.
-7. SCOPE: TypeScript monorepo + ONE small Soroban contract. NO Go, NO Python, NO multi-chain,
-   NO token, NO custody of real funds. (Go money-core is a POST-hackathon extraction.)
-8. DEPENDENCIES: pin versions. Ask before adding any new dependency or language.
-9. WORKFLOW: one task at a time. Write/extend tests. Run them. Commit only when green.
-   Do NOT refactor unrelated code. Do NOT rewrite files outside the current task.
-10. If a requirement is ambiguous, STOP and ask. Never invent financial behavior.
+## HARD RULES
+1. Money: bigint Stroops only (1e7). NEVER Number/float in money paths.
+2. Ledger: append-only double-entry; SUM(debits)==SUM(credits) per asset (DB trigger).
+3. Idempotency on every money-moving op; sagas compensatable.
+4. TESTNET ONLY. No mainnet, no real funds, no custody.
+5. Secrets in .env (gitignored); provide .env.example; never commit secrets.
+6. Testnet resets: scripts re-fund/re-issue idempotently; no hardcoded addresses/contract IDs.
+7. Scope: TS monorepo + 1 Soroban contract. No Go/Python/multi-chain/token.
+8. Pin deps; ask before adding any dependency or language.
+9. One task at a time; write+run tests; commit only when green; no unrelated refactors.
+10. Ambiguous? STOP and ask.
 
-## STACK (chosen for solo + free-model reliability)
-- Language: TypeScript everywhere (Node 20+). One language = fewer agent errors.
-- API: Fastify + zod validation. OpenAPI generated from routes.
-- DB: SQLite via better-sqlite3 (zero infra, triggers work). Schema is Postgres-portable;
-  swap driver post-hackathon. Raw SQL migrations in /migrations.
-- Stellar: @stellar/stellar-sdk (Horizon.Server, Keypair, Asset, Operation, TransactionBuilder).
-- Soroban: Rust + soroban-sdk; build/deploy via the `stellar` CLI (soroban-cli).
-- Web: Vite + React + Tailwind (dashboard). Keep it simple.
-- Tests: vitest. Money math + ledger invariants MUST have unit tests.
-- Queue/cron: node-cron for sweep + reconciliation jobs (no Redis needed for demo).
+## STRUCTURE LAWS (hexagonal)
+- packages/core = DOMAIN+APPLICATION: zero I/O, imports no adapter/framework.
+- Adapters (packages/stellar, persistence, kyc-mock, nav-mock) implement ports.
+- apps/api/src/container.ts is the ONLY composition root wiring concretes.
+- One responsibility/file; HARD CAP 250 lines; one use-case/file.
+- Cross-module imports ONLY via packages/core public barrel; no deep internals.
+- Domain returns Result<T,E>; never throw across boundaries; adapters convert throws->Result.
+- Colocated *.test.ts; money+ledger invariant tests required.
+- Structured logs + correlationId; no secrets/PII in logs; no globals except config/logger.
 
-## REPO LAYOUT
-yieldrail/
-  AGENTS.md  BUILD_TASKS.md  README.md  .env.example  package.json  tsconfig.base.json
-  migrations/            # SQL schema + triggers
-  packages/
-    core/                # ledger, money math, domain types (NO chain code here)
-    stellar/             # testnet client, issuer/distributor/investor ops, watcher
-    sdk/                 # typed client SDK generated from OpenAPI
-  apps/
-    api/                 # Fastify REST + webhooks + jobs
-    web/                 # React dashboard
-  contracts/
-    sweep-registry/      # Soroban Rust contract
-  scripts/               # fund-accounts, issue-assets, seed-demo, deploy-contract
-  docs/                  # architecture.md, api.md, demo-script.md
+## CROWN JEWELS — DO NOT EDIT (reviewer owns)
+packages/core/src/money/money.ts
+migrations/0001_ledger.sql
+packages/core/src/shared/result.ts
+packages/core/src/shared/errors.ts
+packages/core/src/ports/*.ts
+If a change seems needed, STOP and ask the reviewer.
 
-## LEDGER SCHEMA (core)
-accounts(id, type[ASSET|LIABILITY|INCOME|EXPENSE|SUSPENSE|ROUNDING], owner, asset, chain)
-journal_entries(id, event_id UNIQUE, effective_date, system_date, ref, created_at)
-journal_lines(id, entry_id, account_id, asset, direction[DEBIT|CREDIT], amount_minor BIGINT, tx_hash)
-TRIGGER: reject any entry where debits != credits per asset.
-UNIQUE(event_id, account_id, asset, direction) for idempotency.
+## LEDGER POSTING PROTOCOL
+ONE transaction: insert journal_entries(posted=0) -> insert journal_lines ->
+UPDATE journal_entries SET posted=1. Trigger validates balance; aborts txn if wrong.
+Never insert lines into a posted entry.
 
-## API SURFACE
-POST /v1/investors                 create + run mock KYC passport
-GET  /v1/investors/:id/eligibility
-GET  /v1/products                  fund catalog (USTBL: yield, liquidity, eligibility)
-POST /v1/orders                    subscribe|redeem  [Idempotency-Key required]
-GET  /v1/orders/:id
-POST /v1/sweeps                    auto-yield rule (threshold, target, enabled)
-GET  /v1/positions
-GET  /v1/nav/:product
-GET  /v1/recon/status
-Webhooks (HMAC-signed): investor.kyc.approved, order.settled, order.failed, nav.updated, recon.break, sweep.executed
-
-## STELLAR SPECIFICS
-- Fund testnet accounts via Friendbot: GET https://friendbot.stellar.org/?addr=G...
-- Stablecoin leg: Circle testnet USDC on Stellar (native asset). Faucet is WEB-ONLY with
-  captcha — cannot be scripted; document the manual step. Fallback: issue mock USDC if faucet down.
-- Fund asset USTBL: issued by OUR testnet issuer account with flags
-  AUTH_REQUIRED | AUTH_REVOCABLE | AUTH_CLAWBACK_ENABLED (setOptions).
-- Investor holds via changeTrust; issuer authorizes via allowTrust(authorize=true) ONLY after KYC.
-- Subscribe: investor pays USDC to issuer; issuer pays USTBL to investor (payment ops).
-- Redeem: clawback USTBL from investor; issuer returns USDC.
-- Reconciliation: Horizon streaming (payments/effects) vs ledger; flag breaks to SUSPENSE + alert.
-- Yield: mock NAV oracle increases USTBL NAV over time; position value = shares*NAV/1e7 (bigint).
-
-## SOROBAN CONTRACT (sweep-registry) — keep minimal
-Storage: per-investor SweepRule { threshold_stroops: i128, target_asset: String, enabled: bool }
-Functions: set_rule(investor, rule) [admin/auth], get_rule(investor), is_enabled(investor).
-Events: rule_set. Admin = deployer. No token logic, no fund custody. Build wasm, deploy testnet,
-write contract ID to state file. Backend reads rules on-chain (falls back to DB if unset).
+## STACK
+TS/Node20+, Fastify+zod, SQLite(better-sqlite3)+raw SQL migrations (Postgres-portable),
+@stellar/stellar-sdk, Vite+React+Tailwind, vitest, node-cron.
+Soroban: Rust+soroban-sdk, `stellar` CLI.
 
 ## DEFINITION OF DONE (per task)
-- Code compiles, tests pass, no floats in money paths, no secrets committed.
-- Idempotent where money moves. Ledger balanced. Small focused commit.
-- Update README/docs if behavior changed.
-
-## WHAT NOT TO DO
-No mainnet. No real custody. No new languages. No token. No multi-chain. No premature
-microservices. No floating-point money. No rewriting unrelated files. No guessing.
+Compiles; tests pass; no floats in money; no secrets; idempotent money ops; ledger balanced;
+one focused commit; update docs/REVIEW_LOG.md; STOP and report.
