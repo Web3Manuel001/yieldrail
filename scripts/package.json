@@ -1,0 +1,16 @@
+{
+  "name": "@yieldrail/scripts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fund-accounts": "tsx fund-accounts.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@yieldrail/stellar": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "4.23.15"
+  }
+}

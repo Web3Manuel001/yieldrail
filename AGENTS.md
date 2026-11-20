@@ -24,6 +24,8 @@ Plus REST API, TS SDK, React dashboard, ONE Soroban contract, seed script, READM
 8. Pin deps; ask before adding any dependency or language.
 9. One task at a time; write+run tests; commit only when green; no unrelated refactors.
 10. Ambiguous? STOP and ask.
+11. NEVER weaken compiler/safety flags (noUncheckedIndexedAccess, strict, etc.) or edit crown
+    jewels to resolve a conflict. STOP and ask the reviewer. Safety flags stay ON.
 
 ## STRUCTURE LAWS (hexagonal)
 - packages/core = DOMAIN+APPLICATION: zero I/O, imports no adapter/framework.

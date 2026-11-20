@@ -1,0 +1,16 @@
+{
+  "name": "@yieldrail/stellar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "15.1.0",
+    "@yieldrail/core": "workspace:*"
+  }
+}
