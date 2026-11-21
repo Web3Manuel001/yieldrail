@@ -58,3 +58,12 @@ Soroban: Rust+soroban-sdk, `stellar` CLI.
 ## DEFINITION OF DONE (per task)
 Compiles; tests pass; no floats in money; no secrets; idempotent money ops; ledger balanced;
 one focused commit; update docs/REVIEW_LOG.md; STOP and report.
+
+## GIT WORKFLOW
+- The mainline is `main` (renamed from master). It is protected: always green, always demo-able.
+- NEVER commit directly to main. One task = one short-lived branch task/NN-slug cut from main.
+- Tests + typecheck must pass before requesting review. The reviewer gates the merge.
+- Merge to main via squash (one commit per task); delete the branch after.
+- Never force-push main. Never weaken compiler/safety flags or delete tests to pass CI — STOP and ask.
+- Experiments go on spike/xxx (throwaway); never merge without review.
+- noUncheckedIndexedAccess and strict stay ON always. Crown jewels are reviewer-owned.
