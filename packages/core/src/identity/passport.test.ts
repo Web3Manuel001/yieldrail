@@ -5,6 +5,11 @@ import type { Result } from '../shared/result';
 import { createInvestor, type Investor } from './investor';
 import type { KycVerification } from './kyc.port';
 import { issuePassport } from './passport';
+import { DEMO_ELIGIBILITY_POLICY } from './policy.fixture';
+import type { EligibilityPolicy } from './policy';
+
+const NOW = new Date('2026-11-21T10:05:00.000Z');
+const NOW_ISO = '2026-11-21T10:05:00.000Z';
 
 function unwrap<T>(result: Result<T, AppError>): T {
   if (!result.ok) throw result.error;
@@ -29,6 +34,10 @@ function approved(overrides: Partial<KycVerification> = {}): KycVerification {
     verifiedAt: '2026-11-21T10:00:00.000Z',
     ...overrides,
   };
+}
+
+function policy(overrides: Partial<EligibilityPolicy> = {}): EligibilityPolicy {
+  return { ...DEMO_ELIGIBILITY_POLICY, ...overrides };
 }
 
 describe('createInvestor', () => {
@@ -74,38 +83,75 @@ describe('createInvestor', () => {
 });
 
 describe('issuePassport', () => {
-  it('grants an eligibility passport for an approved NG investor', () => {
+  it('grants a product-scoped passport for a jurisdiction inside the policy', () => {
     const passport = unwrap(
-      issuePassport(investor(), approved(), '2026-11-21T10:05:00.000Z'),
+      issuePassport(investor(), approved(), DEMO_ELIGIBILITY_POLICY, NOW),
     );
 
     expect(passport).toEqual({
       investorId: 'inv-001',
+      productId: 'USTBL',
       walletAddress: investor().walletAddress,
       jurisdiction: 'NG',
       tier: 'retail',
-      eligibleAt: '2026-11-21T10:05:00.000Z',
+      eligibleAt: NOW_ISO,
     });
     expect(Object.isFrozen(passport)).toBe(true);
   });
 
-  it('grants eligibility for an approved GH investor', () => {
+  it('grants eligibility inside a policy that allows GH', () => {
     const passport = unwrap(
       issuePassport(
         investor({ jurisdiction: 'GH' }),
         approved(),
-        '2026-11-21T10:05:00.000Z',
+        DEMO_ELIGIBILITY_POLICY,
+        NOW,
       ),
     );
 
     expect(passport.jurisdiction).toBe('GH');
+    expect(passport.productId).toBe('USTBL');
+  });
+
+  it('rejects a jurisdiction outside the policy', () => {
+    const outsideDemo = issuePassport(
+      investor({ jurisdiction: 'US' }),
+      approved(),
+      DEMO_ELIGIBILITY_POLICY,
+      NOW,
+    );
+    const outsideNarrowPolicy = issuePassport(
+      investor({ jurisdiction: 'NG' }),
+      approved(),
+      policy({ allowedJurisdictions: ['GH'] }),
+      NOW,
+    );
+
+    for (const result of [outsideDemo, outsideNarrowPolicy]) {
+      if (result.ok) throw new Error('expected disallowed jurisdiction to fail');
+      expect(result.error.code).toBe('VALIDATION');
+    }
+  });
+
+  it('scopes eligibility to the policy product', () => {
+    const passport = unwrap(
+      issuePassport(
+        investor({ jurisdiction: 'GH' }),
+        approved(),
+        policy({ productId: 'USTBL-GH', allowedJurisdictions: ['GH'] }),
+        NOW,
+      ),
+    );
+
+    expect(passport.productId).toBe('USTBL-GH');
   });
 
   it('rejects a KYC verification that was rejected, preserving the reason', () => {
     const result = issuePassport(
       investor(),
       approved({ status: 'rejected', reason: 'Sanctions match' }),
-      '2026-11-21T10:05:00.000Z',
+      DEMO_ELIGIBILITY_POLICY,
+      NOW,
     );
 
     if (result.ok) throw new Error('expected passport rejection');
@@ -117,12 +163,14 @@ describe('issuePassport', () => {
     const pending = issuePassport(
       investor(),
       approved({ status: 'pending' }),
-      '2026-11-21T10:05:00.000Z',
+      DEMO_ELIGIBILITY_POLICY,
+      NOW,
     );
     const mismatched = issuePassport(
       investor(),
       approved({ investorId: 'inv-999' }),
-      '2026-11-21T10:05:00.000Z',
+      DEMO_ELIGIBILITY_POLICY,
+      NOW,
     );
 
     if (pending.ok) throw new Error('expected pending KYC to fail');
@@ -132,21 +180,15 @@ describe('issuePassport', () => {
     expect(mismatched.error.code).toBe('VALIDATION');
   });
 
-  it('rejects an unsupported jurisdiction', () => {
+  it('rejects an invalid decision date without throwing', () => {
     const result = issuePassport(
-      investor({ jurisdiction: 'US' }),
+      investor(),
       approved(),
-      '2026-11-21T10:05:00.000Z',
+      DEMO_ELIGIBILITY_POLICY,
+      new Date(Number.NaN),
     );
 
-    if (result.ok) throw new Error('expected unsupported jurisdiction to fail');
-    expect(result.error.code).toBe('KYC_REJECTED');
-  });
-
-  it('requires an eligibility timestamp', () => {
-    const result = issuePassport(investor(), approved(), '  ');
-
-    if (result.ok) throw new Error('expected missing timestamp to fail');
+    if (result.ok) throw new Error('expected invalid date to fail');
     expect(result.error.code).toBe('VALIDATION');
   });
 });

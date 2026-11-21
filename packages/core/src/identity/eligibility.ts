@@ -1,44 +1,47 @@
 import { AppError } from '../shared/errors';
 import { err, ok, type Result } from '../shared/result';
 
-/** Jurisdictions the buildathon demo can onboard. */
-export const SUPPORTED_JURISDICTIONS = ['NG', 'GH'] as const;
-export type Jurisdiction = (typeof SUPPORTED_JURISDICTIONS)[number];
-
-export type EligibilityTier = 'retail';
+/**
+ * Product access tier. The buildathon demo grants retail eligibility; the
+ * type is exported so product policies can declare a minimum tier.
+ */
+export type Tier = 'retail';
 
 /**
  * Compliance passport value object. It binds a KYC-approved investor to one
- * wallet and jurisdiction, and only exists for supported jurisdictions.
+ * wallet, jurisdiction, and product. Eligibility is per investor + product,
+ * never global.
  */
 export interface Eligibility {
   readonly investorId: string;
+  readonly productId: string;
   readonly walletAddress: string;
-  readonly jurisdiction: Jurisdiction;
-  readonly tier: EligibilityTier;
+  readonly jurisdiction: string;
+  readonly tier: Tier;
   readonly eligibleAt: string;
 }
 
-export interface CreateEligibilityInput {
+export interface MakeEligibilityInput {
   investorId: string;
+  productId: string;
   walletAddress: string;
   jurisdiction: string;
+  tier: Tier;
   eligibleAt: string;
 }
 
-export function isSupportedJurisdiction(
-  value: string,
-): value is Jurisdiction {
-  return (SUPPORTED_JURISDICTIONS as readonly string[]).includes(value);
-}
-
-/** Validate and freeze an eligibility passport. Pure: no I/O. */
-export function createEligibility(
-  input: CreateEligibilityInput,
+/** Validate and freeze an eligibility passport. Pure: no I/O, no clock. */
+export function makeEligibility(
+  input: MakeEligibilityInput,
 ): Result<Eligibility, AppError> {
   const investorId = input.investorId.trim();
   if (investorId === '') {
     return err(new AppError('VALIDATION', 'Investor id is required'));
+  }
+
+  const productId = input.productId.trim();
+  if (productId === '') {
+    return err(new AppError('VALIDATION', 'Product id is required'));
   }
 
   const walletAddress = input.walletAddress.trim();
@@ -47,12 +50,9 @@ export function createEligibility(
   }
 
   const jurisdiction = input.jurisdiction.trim().toUpperCase();
-  if (!isSupportedJurisdiction(jurisdiction)) {
+  if (!/^[A-Z]{2}$/.test(jurisdiction)) {
     return err(
-      new AppError(
-        'KYC_REJECTED',
-        'Investor jurisdiction is not supported for this product',
-      ),
+      new AppError('VALIDATION', 'Investor jurisdiction must be a 2-letter country code'),
     );
   }
 
@@ -64,9 +64,10 @@ export function createEligibility(
   return ok(
     Object.freeze({
       investorId,
+      productId,
       walletAddress,
       jurisdiction,
-      tier: 'retail',
+      tier: input.tier,
       eligibleAt,
     }),
   );
