@@ -15,3 +15,21 @@ export {
   TESTNET_FRIENDBOT_URL,
   type FundingStatus,
 } from './friendbot';
+export type {
+  AccountSnapshot,
+  HorizonGateway,
+  SubmittedTransaction,
+} from './gateway';
+export {
+  ASSET_AUTH_FLAGS,
+  hasRequiredAuthFlags,
+  issueAsset,
+  type IssueAssetInput,
+  type IssueAssetResult,
+  type IssuerAccountFlags,
+} from './operations/issue-asset';
+export {
+  changeTrust,
+  type ChangeTrustInput,
+  type ChangeTrustResult,
+} from './operations/change-trust';

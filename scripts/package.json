@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "fund-accounts": "tsx fund-accounts.ts",
+    "issue-assets": "tsx issue-assets.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
