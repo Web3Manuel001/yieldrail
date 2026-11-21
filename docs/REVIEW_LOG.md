@@ -55,3 +55,48 @@ Notes:
 ## Task 3 — APPROVED (re-applied via file checkout after unrelated-history fix)
 Auth flags 11 (required|revocable|clawback) verified correct; gateway mockable; live testnet green.
 ## Ledger invariants — APPROVED (9/9 green against crown-jewel schema)
+
+## Task 4a — Compliance passport + trustline authorization
+
+Agent: complete — awaiting reviewer verdict.
+
+Scope:
+- `packages/core/src/identity/investor.ts`: validated, frozen `Investor` entity (id, wallet, ISO-2 jurisdiction); no I/O.
+- `packages/core/src/identity/eligibility.ts`: frozen `Eligibility` value object scoped to investor + product, binding wallet, policy-allowed jurisdiction, tier, and timestamp.
+- `packages/core/src/identity/kyc.port.ts`: `KycPort`, `KycRequest`, and `KycVerification` (`approved | rejected | pending`).
+- `packages/core/src/identity/policy.ts`: `EligibilityPolicy` (`productId`, `allowedJurisdictions`, optional `minTier`).
+- `packages/core/src/identity/passport.ts`: pure `issuePassport(investor, kyc, policy, now)`. Rejects mismatched investor ids (`VALIDATION`), rejected/pending KYC (`KYC_REJECTED`), and jurisdictions outside the product policy (`VALIDATION`); returns `Result<Eligibility, AppError>`. No I/O and no `Date.now()`; the decision time is injected.
+- `packages/kyc-mock/src/mock-kyc.adapter.ts`: deterministic `KycPort` adapter. Investor ids containing `reject` are rejected; all others approved; injectable clock for deterministic `verifiedAt`.
+- `packages/stellar/src/operations/authorize-trustline.ts`: `authorizeTrustline` submits `allowTrust(trustor=investor, assetCode=USTBL, authorize=true)` with the issuer as source/signer through `HorizonGateway`, returning `Result`.
+- Public barrels extended (`@yieldrail/core`, `@yieldrail/stellar`); new `@yieldrail/kyc-mock` workspace package.
+- No API or composition root added (reserved for Task 4b).
+
+Verification:
+- `pnpm test`: 10 files / 42 tests pass.
+- `pnpm typecheck`: 6 of 7 workspace projects pass (`noUncheckedIndexedAccess` + `strict` ON).
+- Tests cover passport approval inside the policy, rejection outside the policy, product scoping, rejected/pending KYC, investor mismatch, invalid decision date, investor entity validation, mock KYC determinism, and `allowTrust`.
+- `allowTrust` test verifies the transaction is signed by the issuer keypair and **not** by the investor; also covers signer mismatch, invalid investor, account-load failure, and Horizon submit failure → `Result.err`.
+- Live testnet verification: `allowTrust` tx `fc993b13091fcd87f7415b30faa626ebfeb6c8ae24268443acfd339fb8897c74`; Horizon now reports the investor USTBL trustline `is_authorized: true`.
+- Crown-jewel files untouched; `.env` / `state.json` not committed; no secrets or PII logged.
+
+Notes:
+- `Eligibility` is the compliance passport value object; ineligible outcomes are represented as `Result.err`, not a stored ineligible state.
+- The jurisdiction allowlist now lives in the product policy, not the domain; disallowed jurisdiction is a policy failure (`VALIDATION`).
+- Mock KYC never performs network I/O and never returns `pending`; `pending` remains part of the port for real providers.
+
+### Reviewer revision — policy-driven passport
+
+Agent: complete — awaiting reviewer verdict.
+
+Changes:
+- Added `policy.ts` (`EligibilityPolicy`) and a `DEMO_ELIGIBILITY_POLICY` fixture (`productId: USTBL`, `allowedJurisdictions: [NG, GH]`).
+- Removed the hardcoded `SUPPORTED_JURISDICTIONS` / `isSupportedJurisdiction` set from `eligibility.ts`.
+- `makeEligibility` (renamed from `createEligibility`) now requires `productId`; `Eligibility` is scoped per investor + product.
+- `issuePassport` now takes `(investor, kyc, policy, now: Date)`, validates jurisdiction against `policy.allowedJurisdictions`, and converts `now` with `toISOString()`. Invalid dates return `VALIDATION`; nothing throws across the boundary.
+- `packages/kyc-mock/package.json` already carries `"typecheck": "tsc --noEmit"`; verified it runs.
+- Tests prove inside-policy NG/GH approval, outside-policy rejection, product scoping, and retain mismatch/rejected/pending cases.
+
+Verification:
+- `pnpm test`: 10 files / 42 tests pass.
+- `pnpm typecheck`: all 6 workspace packages with typecheck scripts pass; `noUncheckedIndexedAccess` + `strict` ON.
+- Crown-jewel files untouched; domain remains pure (zero I/O); no secrets or PII logged.

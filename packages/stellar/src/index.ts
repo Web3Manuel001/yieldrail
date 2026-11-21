@@ -33,3 +33,8 @@ export {
   type ChangeTrustInput,
   type ChangeTrustResult,
 } from './operations/change-trust';
+export {
+  authorizeTrustline,
+  type AuthorizeTrustlineInput,
+  type AuthorizeTrustlineResult,
+} from './operations/authorize-trustline';
