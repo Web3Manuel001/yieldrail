@@ -52,3 +52,6 @@ Verification:
 Notes:
 - Local `.env` / `state.json` hold testnet-only generated keys from verification; both remain gitignored.
 - This commit also carries the reviewer's approved Task 1 corrections already present in the working tree (`money.ts`, `tsconfig.base.json`, `AGENTS.md`, `REVIEW_LOG.md`).
+## Task 3 — APPROVED (re-applied via file checkout after unrelated-history fix)
+Auth flags 11 (required|revocable|clawback) verified correct; gateway mockable; live testnet green.
+## Ledger invariants — APPROVED (9/9 green against crown-jewel schema)
