@@ -131,6 +131,12 @@ importers:
 
   packages/core: {}
 
+  packages/kyc-mock:
+    dependencies:
+      '@yieldrail/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/persistence:
     dependencies:
       '@yieldrail/core':

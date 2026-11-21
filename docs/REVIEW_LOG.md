@@ -55,3 +55,30 @@ Notes:
 ## Task 3 — APPROVED (re-applied via file checkout after unrelated-history fix)
 Auth flags 11 (required|revocable|clawback) verified correct; gateway mockable; live testnet green.
 ## Ledger invariants — APPROVED (9/9 green against crown-jewel schema)
+
+## Task 4a — Compliance passport + trustline authorization
+
+Agent: complete — awaiting reviewer verdict.
+
+Scope:
+- `packages/core/src/identity/investor.ts`: validated, frozen `Investor` entity (id, wallet, ISO-2 jurisdiction); no I/O.
+- `packages/core/src/identity/eligibility.ts`: frozen `Eligibility` value object binding investor id + wallet + supported jurisdiction (`NG`, `GH`) + tier + timestamp.
+- `packages/core/src/identity/kyc.port.ts`: `KycPort`, `KycRequest`, and `KycVerification` (`approved | rejected | pending`).
+- `packages/core/src/identity/passport.ts`: pure `issuePassport` policy. Rejects mismatched investor ids (`VALIDATION`), rejected/pending KYC (`KYC_REJECTED`), and unsupported jurisdictions; returns `Result<Eligibility, AppError>`. No clock or I/O; caller passes the timestamp.
+- `packages/kyc-mock/src/mock-kyc.adapter.ts`: deterministic `KycPort` adapter. Investor ids containing `reject` are rejected; all others approved; injectable clock for deterministic `verifiedAt`.
+- `packages/stellar/src/operations/authorize-trustline.ts`: `authorizeTrustline` submits `allowTrust(trustor=investor, assetCode=USTBL, authorize=true)` with the issuer as source/signer through `HorizonGateway`, returning `Result`.
+- Public barrels extended (`@yieldrail/core`, `@yieldrail/stellar`); new `@yieldrail/kyc-mock` workspace package.
+- No API or composition root added (reserved for Task 4b).
+
+Verification:
+- `pnpm test`: 10 files / 41 tests pass.
+- `pnpm typecheck`: 6 of 7 workspace projects pass (`noUncheckedIndexedAccess` + `strict` ON).
+- Tests cover passport approve (NG/GH), rejected/pending KYC, investor mismatch, unsupported jurisdiction, missing timestamp, investor entity validation, mock KYC determinism, and `allowTrust`.
+- `allowTrust` test verifies the transaction is signed by the issuer keypair and **not** by the investor; also covers signer mismatch, invalid investor, account-load failure, and Horizon submit failure → `Result.err`.
+- Live testnet verification: `allowTrust` tx `fc993b13091fcd87f7415b30faa626ebfeb6c8ae24268443acfd339fb8897c74`; Horizon now reports the investor USTBL trustline `is_authorized: true`.
+- Crown-jewel files untouched; `.env` / `state.json` not committed; no secrets or PII logged.
+
+Notes:
+- `Eligibility` is the compliance passport value object; ineligible outcomes are represented as `Result.err`, not a stored ineligible state.
+- Unsupported jurisdiction is a compliance denial (`KYC_REJECTED`), not a malformed input.
+- Mock KYC never performs network I/O and never returns `pending`; `pending` remains part of the port for real providers.
