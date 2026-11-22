@@ -16,6 +16,7 @@ export {
   type FundingStatus,
 } from './friendbot';
 export type {
+  AccountBalance,
   AccountSnapshot,
   HorizonGateway,
   SubmittedTransaction,
@@ -38,6 +39,15 @@ export {
   type AuthorizeTrustlineInput,
   type AuthorizeTrustlineResult,
 } from './operations/authorize-trustline';
+export {
+  submitPayment,
+  type SubmitPaymentInput,
+  type SubmitPaymentResult,
+} from './operations/submit-payment';
+export {
+  getBalance,
+  type GetBalanceInput,
+} from './operations/get-balance';
 export {
   StellarChainAdapter,
   type StellarChainAdapterConfig,
