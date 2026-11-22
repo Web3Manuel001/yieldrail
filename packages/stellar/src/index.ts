@@ -38,3 +38,7 @@ export {
   type AuthorizeTrustlineInput,
   type AuthorizeTrustlineResult,
 } from './operations/authorize-trustline';
+export {
+  StellarChainAdapter,
+  type StellarChainAdapterConfig,
+} from './chain.adapter';

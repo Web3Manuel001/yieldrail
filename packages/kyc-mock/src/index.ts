@@ -1,4 +1,5 @@
 export {
+  MOCK_KYC_ACCREDITED_MARKER,
   MOCK_KYC_PROVIDER,
   MOCK_KYC_REJECT_MARKER,
   createMockKycAdapter,

@@ -14,3 +14,4 @@ export {
   type Migration,
   type MigratedDatabaseOptions,
 } from './migrate';
+export { SqliteInvestorRepository } from './investor.repository';

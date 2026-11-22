@@ -17,3 +17,11 @@ export function isJurisdictionAllowed(
     (allowed) => allowed.trim().toUpperCase() === normalized,
   );
 }
+
+const TIER_RANK: Record<Tier, number> = { retail: 0, accredited: 1 };
+
+/** Whether a verified tier satisfies the product's optional minimum tier. */
+export function meetsMinimumTier(tier: Tier, minTier?: Tier): boolean {
+  if (minTier === undefined) return true;
+  return TIER_RANK[tier] >= TIER_RANK[minTier];
+}

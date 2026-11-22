@@ -2,10 +2,11 @@ import { AppError } from '../shared/errors';
 import { err, ok, type Result } from '../shared/result';
 
 /**
- * Product access tier. The buildathon demo grants retail eligibility; the
- * type is exported so product policies can declare a minimum tier.
+ * Product access tier. Retail is the default; accredited is a higher KYC
+ * tier. Product policies declare a minimum tier when one is required.
  */
-export type Tier = 'retail';
+export const TIERS = ['retail', 'accredited'] as const;
+export type Tier = (typeof TIERS)[number];
 
 /**
  * Compliance passport value object. It binds a KYC-approved investor to one

@@ -6,11 +6,14 @@ import {
   type KycRequest,
   type KycVerification,
   type Result,
+  type Tier,
 } from '@yieldrail/core';
 
 export const MOCK_KYC_PROVIDER = 'mock-kyc';
 /** Investor ids containing this marker are deterministically rejected. */
 export const MOCK_KYC_REJECT_MARKER = 'reject';
+/** Investor ids containing this marker verify at the accredited tier. */
+export const MOCK_KYC_ACCREDITED_MARKER = 'accredited';
 
 export interface MockKycOptions {
   /** Injectable clock so tests are deterministic. Defaults to real time. */
@@ -33,8 +36,14 @@ export function createMockKycAdapter(options: MockKycOptions = {}): KycPort {
         return err(new AppError('VALIDATION', 'Investor id is required'));
       }
 
+      const tier: Tier = investorId
+        .toLowerCase()
+        .includes(MOCK_KYC_ACCREDITED_MARKER)
+        ? 'accredited'
+        : 'retail';
       const base = {
         investorId,
+        tier,
         provider: MOCK_KYC_PROVIDER,
         reference: `mock-${investorId}`,
         verifiedAt: now(),

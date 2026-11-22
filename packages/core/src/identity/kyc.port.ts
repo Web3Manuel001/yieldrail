@@ -1,3 +1,4 @@
+import type { Tier } from './eligibility';
 import { AppError } from '../shared/errors';
 import type { Result } from '../shared/result';
 
@@ -12,6 +13,7 @@ export interface KycRequest {
 export interface KycVerification {
   readonly investorId: string;
   readonly status: KycStatus;
+  readonly tier: Tier;
   readonly provider: string;
   readonly reference: string;
   readonly verifiedAt: string;
