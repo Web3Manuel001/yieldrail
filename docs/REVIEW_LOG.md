@@ -132,3 +132,33 @@ Notes:
 - Replay is checked before policy/KYC/chain work, so a repeated request returns the stored eligibility and authorization hash without re-emitting the event.
 - The event bus is in-memory for the demo; durable webhook delivery/outbox retry is future work.
 - Concurrent first-time requests are protected by the eligibility primary key, but a loser receives `CONFLICT` rather than the winner's result; request-level locking is future work.
+
+## Task 5a — Order foundation + Stellar payment/balance operations
+
+Agent: complete — awaiting reviewer verdict.
+
+Scope:
+- Orders domain in `packages/core/src/orders/`: `Order` entity, `OrderKind` (`subscribe | redeem`), `OrderStatus` (`PENDING | COLLECTING | MINTING | SETTLED | FAILED | REFUNDED`), `NAV_SCALE` (7 decimals), and pure `createOrder`. The entity starts in `PENDING`, requires positive bigint amounts, and is frozen.
+- `order-state.ts`: pure transition table and `isTransitionAllowed` / `assertTransition` / `isTerminalStatus`. Legal path is `PENDING -> COLLECTING -> MINTING -> SETTLED` plus `FAILED`/`REFUNDED` outcomes; terminal statuses have no outgoing edges.
+- `OrderRepositoryPort`: `reserve(input)` returns `{ order, created }` so callers can distinguish a fresh reservation from an idempotent replay; `updateStatus(id, status, patch?)`; `findByIdempotencyKey`.
+- `migrations/0003_orders.sql`: `orders` with `idempotency_key UNIQUE`, investor/product/kind/status checks, bigint minor amounts, scaled NAV, collect/mint hashes, and timestamps. `investor_id` references `investors(id)`.
+- `packages/persistence/src/order.repository.ts` + `order.row.ts`: atomic `INSERT ... ON CONFLICT(idempotency_key) DO NOTHING` reserve. A replay returns the stored order and `created: false`; reusing a key with different investor/product/kind/amounts returns `CONFLICT`. `updateStatus` enforces the state machine, records optional tx hashes, and returns `NOT_FOUND` for unknown ids.
+- Stellar `submit-payment.ts`: validates source signer, destination, positive amount, and asset; builds `payment` with `formatUnits(amount)` only at the SDK boundary; signs with the source keypair; returns the tx hash as `Result`.
+- Stellar `get-balance.ts`: reads the account snapshot, finds the balance by asset code + issuer, and parses the Horizon decimal to bigint Stroops. Missing trustline returns `0n`; malformed Horizon data and transport failures return `CHAIN`.
+- `StellarChainAdapter` now implements `ChainPort.submitPayment` and `ChainPort.getBalance` (the `INTERNAL` stubs are gone). It resolves asset issuers through optional `assetIssuers` overrides and payment signers through optional `signers` keyed by source, both defaulting to the existing issuer signer. `clawback` and streaming remain future work.
+- `HorizonGateway.AccountSnapshot` gained an optional `balances` field; existing mocks without balances still compile, and the real `Horizon.Server` is structurally compatible.
+- Public barrels extended. `chain.port.ts` was not modified.
+
+Verification:
+- `pnpm test`: 18 files / 75 tests pass.
+- `pnpm typecheck`: all 6 workspace packages with typecheck scripts pass; `noUncheckedIndexedAccess` + `strict` ON.
+- Stellar tests prove: a payment's transaction source and signature belong to the payer, the SDK receives `12.5000000`, mismatched signers/destinations/amounts/assets fail before submission, balances return `2_500_000n` for `0.2500000` USDC, missing trustlines return `0n`, and asset code collisions across issuers are not confused.
+- Adapter tests prove per-source payment signing, per-asset issuer resolution for USDC vs USTBL, and rejection when no source signer is configured.
+- Order tests prove the legal FSM path, 13 illegal transitions return `CONFLICT`, terminal statuses, entity validation/freezing, and idempotent reserve behavior including conflict on changed details and status updates through `COLLECTING -> MINTING -> SETTLED`.
+- Crown-jewel files untouched; money remains bigint-only; domain files are pure and return `Result`; all files are under 250 lines.
+
+Notes:
+- `reserve` generates ids and timestamps in the persistence adapter (injectable for tests); the domain entity itself takes both as inputs and remains pure.
+- The order FSM allows `FAILED` from `PENDING`, `COLLECTING`, and `MINTING`, and `REFUNDED` from `COLLECTING` and `MINTING`, reflecting collect/mint compensation. Tighten the table if the reviewer wants a narrower graph.
+- The subscribe/redeem use-case, NAV adapter, ledger postings, and API routes are intentionally deferred to Task 5b and later.
+- `submitPayment` requires a configured signer for the payment source. Task 5b can supply the investor signer through `StellarChainAdapterConfig.signers` (testnet-only); no secret is hardcoded or logged.
