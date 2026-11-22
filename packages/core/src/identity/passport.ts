@@ -57,7 +57,7 @@ export function issuePassport(
     productId: policy.productId,
     walletAddress: investor.walletAddress,
     jurisdiction: investor.jurisdiction,
-    tier: policy.minTier ?? 'retail',
+    tier: verification.tier,
     eligibleAt: now.toISOString(),
   });
 }

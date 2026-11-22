@@ -29,6 +29,7 @@ function approved(overrides: Partial<KycVerification> = {}): KycVerification {
   return {
     investorId: 'inv-001',
     status: 'approved',
+    tier: 'retail',
     provider: 'mock-kyc',
     reference: 'mock-inv-001',
     verifiedAt: '2026-11-21T10:00:00.000Z',

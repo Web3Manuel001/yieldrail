@@ -1,9 +1,20 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 
-export function buildApp(): FastifyInstance {
-  const app = Fastify({ logger: true });
+import type { ApiContainer } from './container';
+import { registerInvestorRoutes } from './routes/investors';
+
+export interface BuildAppOptions {
+  logger?: boolean;
+}
+
+export function buildApp(
+  container: ApiContainer,
+  options: BuildAppOptions = {},
+): FastifyInstance {
+  const app = Fastify({ logger: options.logger ?? true });
 
   app.get('/health', async () => ({ ok: true }));
+  registerInvestorRoutes(app, container);
 
   return app;
 }

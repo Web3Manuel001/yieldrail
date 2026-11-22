@@ -100,3 +100,35 @@ Verification:
 - `pnpm test`: 10 files / 42 tests pass.
 - `pnpm typecheck`: all 6 workspace packages with typecheck scripts pass; `noUncheckedIndexedAccess` + `strict` ON.
 - Crown-jewel files untouched; domain remains pure (zero I/O); no secrets or PII logged.
+
+## Task 4b — Onboard investor API + composition root
+
+Agent: complete — awaiting reviewer verdict.
+
+Scope:
+- New core ports: `PolicyPort`, `ClockPort`, `EventBusPort`, and `InvestorRepositoryPort` under `packages/core/src/ports/`. Existing crown-jewel `chain.port.ts` was not modified.
+- New use-case `packages/core/src/application/onboard-investor.ts`: validates the investor, short-circuits on an existing eligibility (idempotent replay), fetches the product policy, runs KYC, issues the passport with injected `clock.now()`, enforces `policy.minTier`, authorizes the Stellar trustline with USTBL, persists investor + eligibility + authorization hash, and emits `investor.kyc.approved`.
+- `Tier` is now `retail | accredited`; `KycVerification` carries the verified tier. The mock KYC adapter returns `retail` by default and `accredited` for ids containing `accredited`; `meetsMinimumTier` ranks tiers in policy.
+- Persistence: `migrations/0002_identity.sql` adds `investors` and `investor_eligibility` (PK investor + product); `SqliteInvestorRepository` implements the repository port and persists both records in one transaction.
+- Stellar: `StellarChainAdapter` implements `ChainPort.authorizeTrustline` through the mockable `HorizonGateway`; the remaining ChainPort methods return explicit not-implemented `Result.err` until their tasks.
+- Composition root: `apps/api/src/container.ts` wires SQLite + `SqliteInvestorRepository`, `StellarChainAdapter`, mock KYC, system clock, fixture-backed `PolicyPort` (demo USTBL policy), and in-memory event bus. It is the only place concretes are wired.
+- Routes: `POST /v1/investors` and `GET /v1/investors/:id/eligibility?productId=...` with zod DTOs and AppError-to-HTTP status mapping. The use-case emits the approval event.
+- Added pinned `zod` `4.6.7` to `@yieldrail/api` (requested for DTOs).
+
+Verification:
+- `pnpm test`: 12 files / 49 tests pass.
+- `pnpm typecheck`: all 6 workspace packages with typecheck scripts pass; `noUncheckedIndexedAccess` + `strict` ON.
+- Integration tests use the real container, SQLite repository, mock KYC, fixture policy, in-memory event bus, and a mock `HorizonGateway`:
+  - successful onboarding authorizes exactly one USTBL `allowTrust` and emits `investor.kyc.approved`;
+  - KYC rejection returns 403 with zero authorization calls and no persisted eligibility;
+  - replay returns byte-identical JSON with one authorization and one event;
+  - two products for one investor persist independent eligibilities;
+  - `minTier: accredited` rejects a retail KYC and approves an accredited one without over-authorizing.
+- Malformed DTOs are rejected with 400 before the use-case runs.
+- `pnpm install --frozen-lockfile` is clean.
+- Crown-jewel files untouched; money paths untouched (bigint only); domain/application code performs no I/O and never throws across boundaries.
+
+Notes:
+- Replay is checked before policy/KYC/chain work, so a repeated request returns the stored eligibility and authorization hash without re-emitting the event.
+- The event bus is in-memory for the demo; durable webhook delivery/outbox retry is future work.
+- Concurrent first-time requests are protected by the eligibility primary key, but a loser receives `CONFLICT` rather than the winner's result; request-level locking is future work.

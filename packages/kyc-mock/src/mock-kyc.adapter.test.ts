@@ -25,6 +25,7 @@ describe('mock KYC adapter', () => {
     expect(first.value).toEqual({
       investorId: 'inv-001',
       status: 'approved',
+      tier: 'retail',
       provider: MOCK_KYC_PROVIDER,
       reference: 'mock-inv-001',
       verifiedAt: now(),
@@ -43,6 +44,19 @@ describe('mock KYC adapter', () => {
     if (!result.ok) throw result.error;
     expect(result.value.status).toBe('rejected');
     expect(result.value.reason).toContain('rejection marker');
+  });
+
+  it('returns the accredited tier for accredited investor ids', async () => {
+    const adapter = createMockKycAdapter({ now });
+
+    const result = await adapter.verify({
+      investorId: 'inv-accredited-003',
+      jurisdiction: 'NG',
+    });
+
+    if (!result.ok) throw result.error;
+    expect(result.value.status).toBe('approved');
+    expect(result.value.tier).toBe('accredited');
   });
 
   it('returns a Result error for a blank investor id', async () => {
