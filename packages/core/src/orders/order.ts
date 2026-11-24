@@ -9,7 +9,8 @@ export type OrderKind = (typeof ORDER_KINDS)[number];
 /**
  * Order lifecycle. PENDING collects the investor leg, COLLECTING holds the
  * collect transaction, MINTING holds the mint/redemption transaction, and the
- * remaining statuses are terminal outcomes.
+ * remaining statuses are terminal outcomes. SUSPENSE means a compensation
+ * failed and reconciliation must resolve it manually.
  */
 export const ORDER_STATUSES = [
   'PENDING',
@@ -18,14 +19,9 @@ export const ORDER_STATUSES = [
   'SETTLED',
   'FAILED',
   'REFUNDED',
+  'SUSPENSE',
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
-
-/**
- * NAV price scale: 7 decimal places, matching Stellar unit precision. A
- * `navScaled` of 10_000_000n means 1.0000000 per share.
- */
-export const NAV_SCALE = 10_000_000n;
 
 export interface Order {
   readonly id: string;
@@ -37,8 +33,10 @@ export interface Order {
   readonly usdcAmountMinor: Stroops;
   readonly sharesMinor: Stroops;
   readonly navScaled: bigint;
+  readonly remainderMinor: bigint;
   readonly collectTxHash: string | null;
   readonly mintTxHash: string | null;
+  readonly refundTxHash: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -52,6 +50,7 @@ export interface CreateOrderInput {
   usdcAmountMinor: Stroops;
   sharesMinor: Stroops;
   navScaled: bigint;
+  remainderMinor: bigint;
   createdAt: string;
 }
 
@@ -104,6 +103,10 @@ export function createOrder(input: CreateOrderInput): Result<Order, AppError> {
     return err(new AppError('VALIDATION', 'Order NAV must be positive'));
   }
 
+  if (input.remainderMinor < 0n) {
+    return err(new AppError('VALIDATION', 'Order remainder cannot be negative'));
+  }
+
   const createdAt = new Date(input.createdAt);
   if (Number.isNaN(createdAt.getTime())) {
     return err(new AppError('VALIDATION', 'Order creation timestamp is invalid'));
@@ -121,8 +124,10 @@ export function createOrder(input: CreateOrderInput): Result<Order, AppError> {
       usdcAmountMinor: stroops(input.usdcAmountMinor),
       sharesMinor: stroops(input.sharesMinor),
       navScaled: input.navScaled,
+      remainderMinor: input.remainderMinor,
       collectTxHash: null,
       mintTxHash: null,
+      refundTxHash: null,
       createdAt: createdAtIso,
       updatedAt: createdAtIso,
     }),

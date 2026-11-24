@@ -162,3 +162,38 @@ Notes:
 - The order FSM allows `FAILED` from `PENDING`, `COLLECTING`, and `MINTING`, and `REFUNDED` from `COLLECTING` and `MINTING`, reflecting collect/mint compensation. Tighten the table if the reviewer wants a narrower graph.
 - The subscribe/redeem use-case, NAV adapter, ledger postings, and API routes are intentionally deferred to Task 5b and later.
 - `submitPayment` requires a configured signer for the payment source. Task 5b can supply the investor signer through `StellarChainAdapterConfig.signers` (testnet-only); no secret is hardcoded or logged.
+
+## Task 5b — Subscribe saga + order API
+
+Agent: complete — awaiting reviewer verdict.
+
+Scope:
+- Domain: `Order` now stores `remainderMinor` and `refundTxHash`; `SUSPENSE` was added as a terminal order status. `order-state.ts` permits `COLLECTING -> SUSPENSE` and `MINTING -> SUSPENSE`. `NAV_SCALE` was removed in favour of the crown-jewel `STROOPS_PER_UNIT` / `mulDivRoundDown`.
+- Ports: new `NavPort` (`getNav(productId): Result<bigint, AppError>`, NAV scaled by 1e7) and `LedgerPort` (`postSubscribe`). A new read-only `InvestorLookupPort` provides `findById` so the existing crown-jewel `investor.repository.port.ts` did not need to change.
+- `OrderRepositoryPort.reserve` now takes `(idempotencyKey, input)` as required by Task 5b; input carries kind, investor, product, USDC amount, shares, NAV, and remainder. `UpdateOrderStatusPatch` also carries `refundTxHash`. This is the only existing port file changed, per the task instruction.
+- `migrations/0004_order_saga.sql` rebuilds `orders` to add `remainder_minor`, `refund_tx_hash`, and the `SUSPENSE` status while preserving existing rows.
+- Application: `packages/core/src/application/subscribe.order.ts` validates the investor (`NOT_FOUND`), requires product eligibility (`KYC_REJECTED`), prices shares with `mulDivRoundDown(usdc, STROOPS_PER_UNIT, nav)`, and reserves the idempotency key before any money moves. A settled replay returns the stored order. Non-terminal replays resume the saga.
+- `subscribe.saga.ts` implements collect -> mint -> ledger -> settle: investor USDC balance check (`INSUFFICIENT_FUNDS` -> `FAILED`), investor-signed USDC payment to the issuer, issuer-signed USTBL payment to the investor, one double-entry ledger transaction (Dr investor cash / Cr issuer clearing USDC; Dr investor position / Cr issuer clearing USTBL), `SETTLED`, and `order.settled`.
+- Compensation: mint submission failure or insufficient issuer USTBL supply refunds USDC issuer -> investor and marks `REFUNDED` with `order.failed`; a failed refund marks `SUSPENSE` and emits `recon.break`. A chain read failure leaves the order resumable instead of failing it.
+- Persistence: `SqliteLedgerAdapter` posts through the crown-jewel `postEntry` protocol with idempotent per-order entry ids. `SqliteInvestorRepository` also implements `InvestorLookupPort`. `postEntry` accepts optional account seeds so ledger accounts exist inside the posting transaction.
+- `packages/nav-mock`: deterministic NAV adapter starting at `STROOPS_PER_UNIT` (1.0).
+- API: `POST /v1/orders` (required `Idempotency-Key`, `kind=subscribe`, zod DTOs) and `GET /v1/orders/:id`; amounts are serialized as integer-minor strings. Error mapping was extracted to `routes/http-error.ts` and reused by the investor routes. Container wiring adds orders, NAV, ledger, USDC issuer override, and the optional testnet investor signer.
+
+Verification:
+- `pnpm test`: 22 files / 89 tests pass.
+- `pnpm typecheck`: all 7 workspace packages with typecheck scripts pass; `noUncheckedIndexedAccess` + `strict` ON.
+- Integration tests use the real container, SQLite repositories/ledger, mock NAV/USTBL and a mock Horizon gateway:
+  - happy path settles with one USDC collect and one USTBL mint and emits `order.settled`;
+  - a NAV of 1.05 prices shares as `952380952` with a `4000000` remainder, proving the `mulDivRoundDown` path;
+  - idempotent replay returns byte-identical JSON with no second collect/mint/settlement event;
+  - mint failure refunds USDC, records `refundTxHash`, and marks `REFUNDED`;
+  - insufficient USDC marks `FAILED` with `INSUFFICIENT_FUNDS` and submits no payment;
+  - a refund failure marks `SUSPENSE` and emits `recon.break`;
+  - a pre-existing `COLLECTING` order resumes, mints only, and never re-pays the investor leg;
+  - missing investor returns 404, product ineligibility returns 403, and malformed orders return 400.
+- Ledger adapter tests prove per-asset balance (USDC and USTBL debits equal credits) and idempotent posting (one entry, four lines on replay).
+
+Notes:
+- The recorded `collect_tx_hash` is treated as proof that the collect was submitted; `ChainPort` has no transaction-lookup method, so the resume path verifies chain supply with `getBalance` and never calls `submitPayment` for a recorded leg again.
+- A crash between the chain submission and recording its hash can still leave an ambiguous PENDING/COLLECTING order; resolving that needs a transaction-status lookup in a later task.
+- The demo uses one investor signer from `INVESTOR_SECRET`; production custody/signing is out of scope. Crown jewels `money.ts`, `0001_ledger.sql`, `result.ts`, `errors.ts`, `chain.port.ts`, and the existing investor repository port are untouched.

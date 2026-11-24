@@ -50,6 +50,22 @@ export function openDatabase(filename: string): Result<Db, AppError> {
   }
 }
 
+export type AccountType =
+  | 'ASSET'
+  | 'LIABILITY'
+  | 'INCOME'
+  | 'EXPENSE'
+  | 'SUSPENSE'
+  | 'ROUNDING';
+
+/** Account rows ensured inside the same transaction as the journal entry. */
+export interface AccountSeed {
+  id: string;
+  type: AccountType;
+  owner: string;
+  asset: string;
+}
+
 export interface JournalLineInput {
   accountId: string;
   asset: string;
@@ -64,6 +80,8 @@ export interface PostEntryInput {
   effectiveDate: string;
   ref?: string;
   lines: readonly JournalLineInput[];
+  /** Optional accounts to create idempotently in the posting transaction. */
+  accounts?: readonly AccountSeed[];
 }
 
 export interface PostedEntry {
@@ -92,8 +110,21 @@ export function postEntry(
     const markPosted = db.prepare(
       'UPDATE journal_entries SET posted = 1 WHERE id = ?',
     );
+    const insertAccount = db.prepare(
+      `INSERT OR IGNORE INTO accounts (id, type, owner, asset)
+       VALUES (?, ?, ?, ?)`,
+    );
 
     const post = db.transaction(() => {
+      for (const account of input.accounts ?? []) {
+        insertAccount.run(
+          account.id,
+          account.type,
+          account.owner,
+          account.asset,
+        );
+      }
+
       insertEntry.run(
         input.entryId,
         input.eventId,

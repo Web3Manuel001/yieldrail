@@ -5,16 +5,17 @@ import type { OrderStatus } from './order';
 /**
  * Pure order state machine. PENDING collects, COLLECTING confirms the collect
  * transaction, and MINTING confirms the share mint/redemption. SETTLED, FAILED,
- * and REFUNDED are terminal.
+ * REFUNDED, and SUSPENSE are terminal.
  */
 const ALLOWED_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatus[]>> =
   {
     PENDING: ['COLLECTING', 'FAILED'],
-    COLLECTING: ['MINTING', 'FAILED', 'REFUNDED'],
-    MINTING: ['SETTLED', 'FAILED', 'REFUNDED'],
+    COLLECTING: ['MINTING', 'FAILED', 'REFUNDED', 'SUSPENSE'],
+    MINTING: ['SETTLED', 'FAILED', 'REFUNDED', 'SUSPENSE'],
     SETTLED: [],
     FAILED: [],
     REFUNDED: [],
+    SUSPENSE: [],
   };
 
 /** Whether `to` is a legal next state from `from`. */

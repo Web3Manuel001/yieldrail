@@ -13,9 +13,11 @@ const LEGAL: ReadonlyArray<readonly [OrderStatus, OrderStatus]> = [
   ['COLLECTING', 'MINTING'],
   ['COLLECTING', 'FAILED'],
   ['COLLECTING', 'REFUNDED'],
+  ['COLLECTING', 'SUSPENSE'],
   ['MINTING', 'SETTLED'],
   ['MINTING', 'FAILED'],
   ['MINTING', 'REFUNDED'],
+  ['MINTING', 'SUSPENSE'],
 ];
 
 const ILLEGAL: ReadonlyArray<readonly [OrderStatus, OrderStatus]> = [
@@ -32,6 +34,9 @@ const ILLEGAL: ReadonlyArray<readonly [OrderStatus, OrderStatus]> = [
   ['FAILED', 'SETTLED'],
   ['REFUNDED', 'MINTING'],
   ['REFUNDED', 'SETTLED'],
+  ['SUSPENSE', 'MINTING'],
+  ['SUSPENSE', 'SETTLED'],
+  ['SUSPENSE', 'REFUNDED'],
 ];
 
 describe('order state machine', () => {
@@ -51,11 +56,10 @@ describe('order state machine', () => {
     }
   });
 
-  it('treats SETTLED, FAILED, and REFUNDED as terminal', () => {
+  it('treats every outcome status as terminal', () => {
+    const terminal = ['SETTLED', 'FAILED', 'REFUNDED', 'SUSPENSE'];
     for (const status of ORDER_STATUSES) {
-      expect(isTerminalStatus(status)).toBe(
-        status === 'SETTLED' || status === 'FAILED' || status === 'REFUNDED',
-      );
+      expect(isTerminalStatus(status)).toBe(terminal.includes(status));
     }
   });
 });

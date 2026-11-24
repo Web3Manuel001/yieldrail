@@ -127,6 +127,9 @@ importers:
       '@yieldrail/kyc-mock':
         specifier: workspace:*
         version: link:../../packages/kyc-mock
+      '@yieldrail/nav-mock':
+        specifier: workspace:*
+        version: link:../../packages/nav-mock
       '@yieldrail/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence
@@ -147,6 +150,12 @@ importers:
   packages/core: {}
 
   packages/kyc-mock:
+    dependencies:
+      '@yieldrail/core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/nav-mock:
     dependencies:
       '@yieldrail/core':
         specifier: workspace:*
