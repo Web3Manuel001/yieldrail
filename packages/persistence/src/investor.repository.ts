@@ -5,6 +5,7 @@ import {
   ok,
   type Eligibility,
   type Investor,
+  type InvestorLookupPort,
   type InvestorRepositoryPort,
   type Result,
   type StoredEligibility,
@@ -14,6 +15,7 @@ import {
 import { mapSqliteError, type Db } from './db';
 
 interface InvestorRow {
+  id: string;
   wallet_address: string;
   jurisdiction: string;
 }
@@ -50,8 +52,31 @@ function toStoredEligibility(row: EligibilityRow): StoredEligibility {
 }
 
 /** SQLite implementation of the onboarding persistence port. */
-export class SqliteInvestorRepository implements InvestorRepositoryPort {
+export class SqliteInvestorRepository
+  implements InvestorRepositoryPort, InvestorLookupPort
+{
   constructor(private readonly db: Db) {}
+
+  findById(investorId: string): Result<Investor | null, AppError> {
+    try {
+      const row = this.db
+        .prepare(
+          'SELECT id, wallet_address, jurisdiction FROM investors WHERE id = ?',
+        )
+        .get(investorId) as InvestorRow | undefined;
+
+      if (row === undefined) return ok(null);
+      return ok(
+        Object.freeze({
+          id: row.id,
+          walletAddress: row.wallet_address,
+          jurisdiction: row.jurisdiction,
+        }),
+      );
+    } catch (error) {
+      return err(mapSqliteError(error));
+    }
+  }
 
   findEligibility(
     investorId: string,
@@ -92,7 +117,7 @@ export class SqliteInvestorRepository implements InvestorRepositoryPort {
       const save = this.db.transaction(() => {
         const existing = this.db
           .prepare(
-            'SELECT wallet_address, jurisdiction FROM investors WHERE id = ?',
+            'SELECT id, wallet_address, jurisdiction FROM investors WHERE id = ?',
           )
           .get(investor.id) as InvestorRow | undefined;
 

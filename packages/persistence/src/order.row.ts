@@ -17,15 +17,17 @@ export interface OrderRow {
   usdc_amount_minor: bigint;
   shares_minor: bigint;
   nav_scaled: bigint;
+  remainder_minor: bigint;
   collect_tx_hash: string | null;
   mint_tx_hash: string | null;
+  refund_tx_hash: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export const ORDER_COLUMNS = `id, idempotency_key, investor_id, product_id, kind, status,
-  usdc_amount_minor, shares_minor, nav_scaled, collect_tx_hash, mint_tx_hash,
-  created_at, updated_at`;
+  usdc_amount_minor, shares_minor, nav_scaled, remainder_minor,
+  collect_tx_hash, mint_tx_hash, refund_tx_hash, created_at, updated_at`;
 
 /** Convert a database row into the frozen domain entity. */
 export function toOrder(row: OrderRow): Order {
@@ -46,8 +48,10 @@ export function toOrder(row: OrderRow): Order {
     usdcAmountMinor: stroops(row.usdc_amount_minor),
     sharesMinor: stroops(row.shares_minor),
     navScaled: row.nav_scaled,
+    remainderMinor: row.remainder_minor,
     collectTxHash: row.collect_tx_hash,
     mintTxHash: row.mint_tx_hash,
+    refundTxHash: row.refund_tx_hash,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });

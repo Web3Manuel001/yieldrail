@@ -1,6 +1,11 @@
-import type { Eligibility } from '@yieldrail/core';
+import {
+  formatUnits,
+  stroops,
+  type Eligibility,
+} from '@yieldrail/core';
 import {
   generateKeypair,
+  type AccountBalance,
   type GeneratedKeypair,
   type HorizonGateway,
 } from '@yieldrail/stellar';
@@ -15,13 +20,21 @@ import {
 import { InMemoryEventBus } from '../in-memory-event-bus';
 
 export const NOW = new Date('2026-11-22T09:00:00.000Z');
-type SubmittedTx = Parameters<HorizonGateway['submitTransaction']>[0];
+export type SubmittedTx = Parameters<HorizonGateway['submitTransaction']>[0];
+
+export interface HarnessOptions extends Partial<ContainerOptions> {
+  /** Fail a submitted transaction at this 1-based index (Horizon rejection). */
+  readonly failSubmit?: (transaction: SubmittedTx, index: number) => boolean;
+}
 
 export interface Harness {
   app: FastifyInstance;
   container: ApiContainer;
   eventBus: InMemoryEventBus;
   submitted: SubmittedTx[];
+  issuer: GeneratedKeypair;
+  investor: GeneratedKeypair;
+  setBalance(account: string, asset: string, amount: bigint): void;
 }
 
 export interface OnboardBody {
@@ -42,33 +55,54 @@ export function keypair(): GeneratedKeypair {
   return generated.value;
 }
 
-export function createHarness(
-  options: Partial<ContainerOptions> = {},
-): Harness {
+export function createHarness(options: HarnessOptions = {}): Harness {
+  const { failSubmit, ...containerOptions } = options;
   const issuer = keypair();
+  const investor = keypair();
   const eventBus = new InMemoryEventBus();
   const submitted: SubmittedTx[] = [];
+  const balances = new Map<string, Map<string, bigint>>();
 
   const gateway: HorizonGateway = {
-    loadAccount: async () => ({ sequenceNumber: () => '123456789' }),
+    loadAccount: async (publicKey) => {
+      const held = balances.get(publicKey);
+      const lines: AccountBalance[] =
+        held === undefined
+          ? []
+          : [...held.entries()].map(([assetCode, amount]) => ({
+              asset_type: 'credit_alphanum4',
+              asset_code: assetCode,
+              asset_issuer: issuer.publicKey,
+              balance: formatUnits(stroops(amount)),
+            }));
+
+      return { sequenceNumber: () => '123456789', balances: lines };
+    },
     submitTransaction: async (transaction) => {
       submitted.push(transaction);
+      if (failSubmit?.(transaction, submitted.length) === true) {
+        throw new Error('horizon rejected the transaction');
+      }
       return { hash: `tx-${submitted.length}` };
     },
   };
 
   const created = createContainer({
     databasePath: ':memory:',
+    ...containerOptions,
     gateway,
     eventBus,
     clock: { now: () => NOW },
     env: {
       ISSUER_PUBLIC_KEY: issuer.publicKey,
       ISSUER_SECRET: issuer.secret,
+      INVESTOR_PUBLIC_KEY: investor.publicKey,
+      INVESTOR_SECRET: investor.secret,
+      USDC_ISSUER: issuer.publicKey,
       HORIZON_URL: 'https://horizon-testnet.stellar.org',
       USTBL_ASSET_CODE: 'USTBL',
+      ...containerOptions.env,
     },
-    ...options,
   });
   if (!created.ok) throw created.error;
 
@@ -77,6 +111,13 @@ export function createHarness(
     container: created.value,
     eventBus,
     submitted,
+    issuer,
+    investor,
+    setBalance(account, asset, amount) {
+      const held = balances.get(account) ?? new Map<string, bigint>();
+      held.set(asset, amount);
+      balances.set(account, held);
+    },
   };
 }
 

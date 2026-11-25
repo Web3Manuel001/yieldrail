@@ -23,10 +23,14 @@ function sameReservation(existing: Order, incoming: Order): boolean {
     existing.investorId === incoming.investorId &&
     existing.productId === incoming.productId &&
     existing.kind === incoming.kind &&
-    existing.usdcAmountMinor === incoming.usdcAmountMinor &&
-    existing.sharesMinor === incoming.sharesMinor &&
-    existing.navScaled === incoming.navScaled
+    existing.usdcAmountMinor === incoming.usdcAmountMinor
   );
+}
+
+function cleanHash(value: string | undefined): string | undefined | null {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
 }
 
 export interface SqliteOrderRepositoryOptions {
@@ -47,7 +51,10 @@ export class SqliteOrderRepository implements OrderRepositoryPort {
     this.generateId = options.generateId ?? randomUUID;
   }
 
-  reserve(input: ReserveOrderInput): Result<ReservedOrder, AppError> {
+  reserve(
+    idempotencyKey: string,
+    input: ReserveOrderInput,
+  ): Result<ReservedOrder, AppError> {
     const now = this.now();
     if (Number.isNaN(now.getTime())) {
       return err(new AppError('VALIDATION', 'Order clock returned an invalid date'));
@@ -55,13 +62,14 @@ export class SqliteOrderRepository implements OrderRepositoryPort {
 
     const created = createOrder({
       id: this.generateId(),
-      idempotencyKey: input.idempotencyKey,
+      idempotencyKey,
       investorId: input.investorId,
       productId: input.productId,
       kind: input.kind,
       usdcAmountMinor: input.usdcAmountMinor,
       sharesMinor: input.sharesMinor,
       navScaled: input.navScaled,
+      remainderMinor: input.remainderMinor,
       createdAt: now.toISOString(),
     });
     if (!created.ok) return created;
@@ -73,7 +81,7 @@ export class SqliteOrderRepository implements OrderRepositoryPort {
         const info = this.db
           .prepare(
             `INSERT INTO orders (${ORDER_COLUMNS})
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(idempotency_key) DO NOTHING`,
           )
           .run(
@@ -86,8 +94,10 @@ export class SqliteOrderRepository implements OrderRepositoryPort {
             order.usdcAmountMinor,
             order.sharesMinor,
             order.navScaled,
+            order.remainderMinor,
             order.collectTxHash,
             order.mintTxHash,
+            order.refundTxHash,
             order.createdAt,
             order.updatedAt,
           );
@@ -98,7 +108,7 @@ export class SqliteOrderRepository implements OrderRepositoryPort {
 
         const existingRow = this.db
           .prepare(`SELECT ${ORDER_COLUMNS} FROM orders WHERE idempotency_key = ?`)
-          .get(order.idempotencyKey) as OrderRow | undefined;
+          .get(idempotencyKey) as OrderRow | undefined;
         if (existingRow === undefined) {
           throw new AppError(
             'CONFLICT',
@@ -128,9 +138,14 @@ export class SqliteOrderRepository implements OrderRepositoryPort {
     status: OrderStatus,
     patch: UpdateOrderStatusPatch = {},
   ): Result<Order, AppError> {
-    const collectTxHash = patch.collectTxHash?.trim();
-    const mintTxHash = patch.mintTxHash?.trim();
-    if (collectTxHash === '' || mintTxHash === '') {
+    const collectTxHash = cleanHash(patch.collectTxHash);
+    const mintTxHash = cleanHash(patch.mintTxHash);
+    const refundTxHash = cleanHash(patch.refundTxHash);
+    if (
+      collectTxHash === null ||
+      mintTxHash === null ||
+      refundTxHash === null
+    ) {
       return err(
         new AppError('VALIDATION', 'Order transaction hash cannot be blank'),
       );
@@ -144,7 +159,7 @@ export class SqliteOrderRepository implements OrderRepositoryPort {
         }
 
         const current = toOrder(currentRow);
-        if (!isTransitionAllowed(current.status, status)) {
+        if (current.status !== status && !isTransitionAllowed(current.status, status)) {
           throw new AppError(
             'CONFLICT',
             `Illegal order transition: ${current.status} -> ${status}`,
@@ -162,6 +177,7 @@ export class SqliteOrderRepository implements OrderRepositoryPort {
                 SET status = ?,
                     collect_tx_hash = COALESCE(?, collect_tx_hash),
                     mint_tx_hash = COALESCE(?, mint_tx_hash),
+                    refund_tx_hash = COALESCE(?, refund_tx_hash),
                     updated_at = ?
               WHERE id = ?`,
           )
@@ -169,6 +185,7 @@ export class SqliteOrderRepository implements OrderRepositoryPort {
             status,
             collectTxHash ?? null,
             mintTxHash ?? null,
+            refundTxHash ?? null,
             now.toISOString(),
             id,
           );
@@ -181,6 +198,15 @@ export class SqliteOrderRepository implements OrderRepositoryPort {
       });
 
       return ok(update());
+    } catch (error) {
+      return err(mapSqliteError(error));
+    }
+  }
+
+  findById(id: string): Result<Order | null, AppError> {
+    try {
+      const row = this.findByIdRow(id);
+      return ok(row === undefined ? null : toOrder(row));
     } catch (error) {
       return err(mapSqliteError(error));
     }

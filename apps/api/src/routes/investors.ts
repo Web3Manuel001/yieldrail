@@ -1,9 +1,8 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-import type { AppError } from '@yieldrail/core';
-
 import type { ApiContainer } from '../container';
+import { sendError } from './http-error';
 
 const onboardBodySchema = z
   .object({
@@ -27,32 +26,6 @@ const eligibilityQuerySchema = z
     productId: z.string().trim().min(1),
   })
   .strict();
-
-function statusFor(error: AppError): number {
-  switch (error.code) {
-    case 'VALIDATION':
-      return 400;
-    case 'KYC_REJECTED':
-      return 403;
-    case 'NOT_FOUND':
-      return 404;
-    case 'CONFLICT':
-    case 'IDEMPOTENCY':
-      return 409;
-    case 'INSUFFICIENT_FUNDS':
-      return 422;
-    case 'CHAIN':
-      return 502;
-    default:
-      return 500;
-  }
-}
-
-function sendError(reply: FastifyReply, error: AppError): FastifyReply {
-  return reply
-    .status(statusFor(error))
-    .send({ error: error.code, message: error.message });
-}
 
 export function registerInvestorRoutes(
   app: FastifyInstance,

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseUnits } from '../money/money';
+import { STROOPS_PER_UNIT, parseUnits } from '../money/money';
 import { AppError } from '../shared/errors';
 import type { Result } from '../shared/result';
-import { NAV_SCALE, createOrder, type CreateOrderInput } from './order';
+import { createOrder, type CreateOrderInput } from './order';
 
 function unwrap<T>(result: Result<T, AppError>): T {
   if (!result.ok) throw result.error;
@@ -19,7 +19,8 @@ function input(overrides: Partial<CreateOrderInput> = {}): CreateOrderInput {
     kind: 'subscribe',
     usdcAmountMinor: parseUnits('100'),
     sharesMinor: parseUnits('99.5'),
-    navScaled: NAV_SCALE,
+    navScaled: STROOPS_PER_UNIT,
+    remainderMinor: 0n,
     createdAt: '2026-11-22T10:00:00.000Z',
     ...overrides,
   };
@@ -38,9 +39,11 @@ describe('createOrder', () => {
       status: 'PENDING',
       usdcAmountMinor: 1_000_000_000n,
       sharesMinor: 995_000_000n,
-      navScaled: NAV_SCALE,
+      navScaled: STROOPS_PER_UNIT,
+      remainderMinor: 0n,
       collectTxHash: null,
       mintTxHash: null,
+      refundTxHash: null,
       createdAt: '2026-11-22T10:00:00.000Z',
       updatedAt: '2026-11-22T10:00:00.000Z',
     });
@@ -63,11 +66,12 @@ describe('createOrder', () => {
     }
   });
 
-  it('rejects non-positive amounts and invalid timestamps', () => {
+  it('rejects non-positive amounts, negative remainders, and invalid timestamps', () => {
     const invalid = [
       createOrder(input({ usdcAmountMinor: parseUnits('0') })),
       createOrder(input({ sharesMinor: parseUnits('0') })),
       createOrder(input({ navScaled: 0n })),
+      createOrder(input({ remainderMinor: -1n })),
       createOrder(input({ createdAt: 'not-a-date' })),
     ];
 

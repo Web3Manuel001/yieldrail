@@ -11,6 +11,7 @@
   "dependencies": {
     "@yieldrail/core": "workspace:*",
     "@yieldrail/kyc-mock": "workspace:*",
+    "@yieldrail/nav-mock": "workspace:*",
     "@yieldrail/persistence": "workspace:*",
     "@yieldrail/stellar": "workspace:*",
     "fastify": "5.12.8",

@@ -5,13 +5,13 @@ import type { Result } from '../shared/result';
 
 /** Everything needed to reserve a new order; id and timestamps are generated. */
 export interface ReserveOrderInput {
-  readonly idempotencyKey: string;
+  readonly kind: OrderKind;
   readonly investorId: string;
   readonly productId: string;
-  readonly kind: OrderKind;
   readonly usdcAmountMinor: Stroops;
   readonly sharesMinor: Stroops;
   readonly navScaled: bigint;
+  readonly remainderMinor: bigint;
 }
 
 export interface ReservedOrder {
@@ -23,23 +23,32 @@ export interface ReservedOrder {
 export interface UpdateOrderStatusPatch {
   readonly collectTxHash?: string;
   readonly mintTxHash?: string;
+  readonly refundTxHash?: string;
 }
 
 /** Persistence boundary for order orchestration. */
 export interface OrderRepositoryPort {
   /**
    * Atomically create a PENDING order. A repeated idempotency key returns the
-   * original order with `created: false`; reusing a key for different order
-   * details is a CONFLICT.
+   * original order with `created: false`; reusing a key for a different
+   * investor/product/kind/amount is a CONFLICT.
    */
-  reserve(input: ReserveOrderInput): Result<ReservedOrder, AppError>;
+  reserve(
+    idempotencyKey: string,
+    input: ReserveOrderInput,
+  ): Result<ReservedOrder, AppError>;
 
-  /** Advance the order through the state machine, optionally recording hashes. */
+  /**
+   * Advance the order through the state machine, optionally recording hashes.
+   * Repeating the current status patches hashes without a transition.
+   */
   updateStatus(
     id: string,
     status: OrderStatus,
     patch?: UpdateOrderStatusPatch,
   ): Result<Order, AppError>;
+
+  findById(id: string): Result<Order | null, AppError>;
 
   findByIdempotencyKey(
     idempotencyKey: string,

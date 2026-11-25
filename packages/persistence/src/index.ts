@@ -2,6 +2,8 @@ export {
   mapSqliteError,
   openDatabase,
   postEntry,
+  type AccountSeed,
+  type AccountType,
   type Db,
   type JournalLineInput,
   type PostEntryInput,
@@ -19,3 +21,4 @@ export {
   SqliteOrderRepository,
   type SqliteOrderRepositoryOptions,
 } from './order.repository';
+export { SqliteLedgerAdapter } from './ledger.adapter';

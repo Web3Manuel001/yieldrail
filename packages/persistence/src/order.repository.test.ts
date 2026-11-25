@@ -1,21 +1,21 @@
-import { parseUnits } from '@yieldrail/core';
+import { parseUnits, type ReserveOrderInput } from '@yieldrail/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Db } from './db';
 import { openMigratedDatabase } from './migrate';
 import { SqliteOrderRepository } from './order.repository';
-import type { ReserveOrderInput } from '@yieldrail/core';
 
 const NOW = new Date('2026-11-22T10:00:00.000Z');
+const KEY = 'idem-001';
 
 const ORDER: ReserveOrderInput = {
-  idempotencyKey: 'idem-001',
   investorId: 'inv-001',
   productId: 'USTBL',
   kind: 'subscribe',
   usdcAmountMinor: parseUnits('100'),
   sharesMinor: parseUnits('99.5'),
   navScaled: 10_000_000n,
+  remainderMinor: 0n,
 };
 
 const openDbs: Db[] = [];
@@ -49,13 +49,13 @@ describe('SqliteOrderRepository', () => {
   it('reserves an order in PENDING with bigint amounts', () => {
     const { repo } = setup();
 
-    const reserved = repo.reserve(ORDER);
+    const reserved = repo.reserve(KEY, ORDER);
     if (!reserved.ok) throw reserved.error;
 
     expect(reserved.value.created).toBe(true);
     expect(reserved.value.order).toMatchObject({
       id: 'ord-1',
-      idempotencyKey: 'idem-001',
+      idempotencyKey: KEY,
       investorId: 'inv-001',
       productId: 'USTBL',
       kind: 'subscribe',
@@ -63,13 +63,15 @@ describe('SqliteOrderRepository', () => {
       usdcAmountMinor: 1_000_000_000n,
       sharesMinor: 995_000_000n,
       navScaled: 10_000_000n,
+      remainderMinor: 0n,
       collectTxHash: null,
       mintTxHash: null,
+      refundTxHash: null,
       createdAt: NOW.toISOString(),
       updatedAt: NOW.toISOString(),
     });
 
-    const found = repo.findByIdempotencyKey('idem-001');
+    const found = repo.findByIdempotencyKey(KEY);
     if (!found.ok) throw found.error;
     expect(found.value).toEqual(reserved.value.order);
   });
@@ -77,15 +79,15 @@ describe('SqliteOrderRepository', () => {
   it('returns the original order when the idempotency key is replayed', () => {
     const { repo } = setup();
 
-    const first = repo.reserve(ORDER);
-    const second = repo.reserve(ORDER);
+    const first = repo.reserve(KEY, ORDER);
+    const second = repo.reserve(KEY, ORDER);
     if (!first.ok) throw first.error;
     if (!second.ok) throw second.error;
 
     expect(second.value.created).toBe(false);
     expect(second.value.order).toEqual(first.value.order);
 
-    const count = repo.findByIdempotencyKey('idem-001');
+    const count = repo.findByIdempotencyKey(KEY);
     if (!count.ok) throw count.error;
     expect(count.value?.id).toBe(first.value.order.id);
   });
@@ -93,10 +95,10 @@ describe('SqliteOrderRepository', () => {
   it('rejects an idempotency key reused for different order details', () => {
     const { repo } = setup();
 
-    const first = repo.reserve(ORDER);
+    const first = repo.reserve(KEY, ORDER);
     if (!first.ok) throw first.error;
 
-    const conflicting = repo.reserve({
+    const conflicting = repo.reserve(KEY, {
       ...ORDER,
       usdcAmountMinor: parseUnits('101'),
     });
@@ -107,7 +109,7 @@ describe('SqliteOrderRepository', () => {
   it('advances status through the state machine and records tx hashes', () => {
     const { repo } = setup();
 
-    const reserved = repo.reserve(ORDER);
+    const reserved = repo.reserve(KEY, ORDER);
     if (!reserved.ok) throw reserved.error;
     const id = reserved.value.order.id;
 
@@ -131,10 +133,30 @@ describe('SqliteOrderRepository', () => {
     expect(settled.value.status).toBe('SETTLED');
   });
 
+  it('records a refund hash when compensation completes', () => {
+    const { repo } = setup();
+
+    const reserved = repo.reserve(KEY, ORDER);
+    if (!reserved.ok) throw reserved.error;
+    const id = reserved.value.order.id;
+
+    const collecting = repo.updateStatus(id, 'COLLECTING', {
+      collectTxHash: 'collect-hash',
+    });
+    if (!collecting.ok) throw collecting.error;
+
+    const refunded = repo.updateStatus(id, 'REFUNDED', {
+      refundTxHash: 'refund-hash',
+    });
+    if (!refunded.ok) throw refunded.error;
+    expect(refunded.value.status).toBe('REFUNDED');
+    expect(refunded.value.refundTxHash).toBe('refund-hash');
+  });
+
   it('rejects illegal transitions and unknown order ids', () => {
     const { repo } = setup();
 
-    const reserved = repo.reserve(ORDER);
+    const reserved = repo.reserve(KEY, ORDER);
     if (!reserved.ok) throw reserved.error;
 
     const illegal = repo.updateStatus(reserved.value.order.id, 'SETTLED');
@@ -149,7 +171,7 @@ describe('SqliteOrderRepository', () => {
   it('rejects a blank transaction hash', () => {
     const { repo } = setup();
 
-    const reserved = repo.reserve(ORDER);
+    const reserved = repo.reserve(KEY, ORDER);
     if (!reserved.ok) throw reserved.error;
 
     const result = repo.updateStatus(reserved.value.order.id, 'COLLECTING', {
