@@ -96,7 +96,11 @@ describe('subscribe order API', () => {
   it('resumes a COLLECTING order without paying the investor leg again', async () => {
     const h = start();
     await onboard(h);
-    h.setBalance(h.issuer.publicKey, 'USTBL', parseUnits('100'));
+    h.seedTransaction({
+      hash: 'prior-collect',
+      source: h.investor.publicKey,
+      successful: true,
+    });
 
     const usdcAmountMinor = parseUnits('100');
     const reserved = h.container.orderRepository.reserve('idem-resume', {
@@ -125,6 +129,118 @@ describe('subscribe order API', () => {
     expect(order.collectTxHash).toBe('prior-collect');
     expect(order.mintTxHash).toBe('tx-2');
     expect(h.submitted).toHaveLength(2);
+  });
+
+  it('reuses the collect memo when a crash lost the tx hash', async () => {
+    const h = start();
+    await onboard(h);
+    // The lost collect already spent the investor's USDC.
+    h.setBalance(h.investor.publicKey, 'USDC', 0n);
+
+    const reserved = h.container.orderRepository.reserve('idem-crash', {
+      kind: 'subscribe',
+      investorId: INVESTOR_ID,
+      productId: PRODUCT_ID,
+      usdcAmountMinor: parseUnits('100'),
+      sharesMinor: parseUnits('100'),
+      navScaled: 10_000_000n,
+      remainderMinor: 0n,
+    });
+    if (!reserved.ok) throw reserved.error;
+
+    const orderId = reserved.value.order.id;
+    h.seedTransaction({
+      hash: 'crashed-collect',
+      source: h.investor.publicKey,
+      memo: `${orderId}:collect`,
+      successful: true,
+    });
+
+    const response = await postOrder(h, 'idem-crash');
+    expect(response.statusCode).toBe(200);
+
+    const order = orderOf(response);
+    expect(order.status).toBe('SETTLED');
+    expect(order.collectTxHash).toBe('crashed-collect');
+    expect(order.mintTxHash).toBe('tx-2');
+    // Onboarding + mint only: the collect was reused, never paid twice.
+    expect(h.submitted).toHaveLength(2);
+  });
+
+  it('leaves a COLLECTING order resumable while its collect tx is pending', async () => {
+    const h = start();
+    await onboard(h);
+    h.seedTransaction({
+      hash: 'pending-collect',
+      source: h.investor.publicKey,
+      pending: true,
+    });
+
+    const reserved = h.container.orderRepository.reserve('idem-pending', {
+      kind: 'subscribe',
+      investorId: INVESTOR_ID,
+      productId: PRODUCT_ID,
+      usdcAmountMinor: parseUnits('100'),
+      sharesMinor: parseUnits('100'),
+      navScaled: 10_000_000n,
+      remainderMinor: 0n,
+    });
+    if (!reserved.ok) throw reserved.error;
+
+    const collecting = h.container.orderRepository.updateStatus(
+      reserved.value.order.id,
+      'COLLECTING',
+      { collectTxHash: 'pending-collect' },
+    );
+    if (!collecting.ok) throw collecting.error;
+
+    const response = await postOrder(h, 'idem-pending');
+    expect(response.statusCode).toBe(409);
+
+    const stored = h.container.orderRepository.findByIdempotencyKey(
+      'idem-pending',
+    );
+    if (!stored.ok) throw stored.error;
+    expect(stored.value?.status).toBe('COLLECTING');
+    expect(h.submitted).toHaveLength(1);
+  });
+
+  it('retries a collect whose recorded transaction failed', async () => {
+    const h = start();
+    await onboard(h);
+    fund(h);
+    h.seedTransaction({
+      hash: 'failed-collect',
+      source: h.investor.publicKey,
+      successful: false,
+    });
+
+    const reserved = h.container.orderRepository.reserve('idem-retry-collect', {
+      kind: 'subscribe',
+      investorId: INVESTOR_ID,
+      productId: PRODUCT_ID,
+      usdcAmountMinor: parseUnits('100'),
+      sharesMinor: parseUnits('100'),
+      navScaled: 10_000_000n,
+      remainderMinor: 0n,
+    });
+    if (!reserved.ok) throw reserved.error;
+
+    const collecting = h.container.orderRepository.updateStatus(
+      reserved.value.order.id,
+      'COLLECTING',
+      { collectTxHash: 'failed-collect' },
+    );
+    if (!collecting.ok) throw collecting.error;
+
+    const response = await postOrder(h, 'idem-retry-collect');
+    expect(response.statusCode).toBe(200);
+
+    const order = orderOf(response);
+    expect(order.status).toBe('SETTLED');
+    expect(order.collectTxHash).toBe('tx-2');
+    expect(order.mintTxHash).toBe('tx-3');
+    expect(h.submitted).toHaveLength(3);
   });
 
   it('requires an existing, eligible investor', async () => {

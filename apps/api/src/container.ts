@@ -24,6 +24,7 @@ import {
   openMigratedDatabase,
 } from '@yieldrail/persistence';
 import {
+  HorizonServerGateway,
   StellarChainAdapter,
   TESTNET_HORIZON_URL,
   createTestnetClient,
@@ -146,7 +147,7 @@ export function createContainer(
   const eventBus = options.eventBus ?? new InMemoryEventBus();
   const clock = options.clock ?? systemClock;
   const chain = new StellarChainAdapter({
-    gateway: options.gateway ?? client.value.server,
+    gateway: options.gateway ?? new HorizonServerGateway(client.value.server),
     networkPassphrase: client.value.networkPassphrase,
     issuer,
     signer: signer.value,

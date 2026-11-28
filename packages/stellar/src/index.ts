@@ -18,9 +18,12 @@ export {
 export type {
   AccountBalance,
   AccountSnapshot,
+  AccountTransactionsOptions,
   HorizonGateway,
+  HorizonTransactionRecord,
   SubmittedTransaction,
 } from './gateway';
+export { HorizonServerGateway } from './horizon-server.gateway';
 export {
   ASSET_AUTH_FLAGS,
   hasRequiredAuthFlags,
@@ -48,6 +51,15 @@ export {
   getBalance,
   type GetBalanceInput,
 } from './operations/get-balance';
+export {
+  getTransactionStatus,
+} from './operations/get-transaction-status';
+export {
+  memoFor,
+  memoMatches,
+  memoValueForHorizon,
+  type HorizonMemoFields,
+} from './operations/memo';
 export {
   StellarChainAdapter,
   type StellarChainAdapterConfig,

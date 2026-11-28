@@ -6,12 +6,14 @@ import {
   type ChainPort,
   type Result,
   type Stroops,
+  type TxStatus,
 } from '@yieldrail/core';
 import type { Keypair } from '@stellar/stellar-sdk';
 
 import type { HorizonGateway } from './gateway';
 import { authorizeTrustline } from './operations/authorize-trustline';
 import { getBalance as getBalanceOperation } from './operations/get-balance';
+import { getTransactionStatus as getTransactionStatusOperation } from './operations/get-transaction-status';
 import { submitPayment as submitPaymentOperation } from './operations/submit-payment';
 
 export interface StellarChainAdapterConfig {
@@ -56,6 +58,7 @@ export class StellarChainAdapter implements ChainPort {
     to: string,
     asset: string,
     amount: Stroops,
+    memo?: string,
   ): Promise<Result<string, AppError>> {
     const signer = this.paymentSigner(from);
     if (signer === undefined) {
@@ -74,6 +77,7 @@ export class StellarChainAdapter implements ChainPort {
         assetCode: asset,
         assetIssuer: this.assetIssuer(asset),
         amount,
+        ...(memo === undefined ? {} : { memo }),
       },
     );
 
@@ -98,6 +102,12 @@ export class StellarChainAdapter implements ChainPort {
       assetCode: asset,
       assetIssuer: this.assetIssuer(asset),
     });
+  }
+
+  async getTransactionStatus(
+    txHash: string,
+  ): Promise<Result<TxStatus, AppError>> {
+    return getTransactionStatusOperation(this.config.gateway, txHash);
   }
 
   streamPayments(_handler: (payment: ChainPayment) => void): { stop(): void } {
