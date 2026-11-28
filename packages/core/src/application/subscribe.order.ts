@@ -143,6 +143,11 @@ export class SubscribeOrder {
       }
     }
 
-    return runSubscribeSaga(this.deps, order, investor.walletAddress);
+    return runSubscribeSaga(
+      this.deps,
+      order,
+      investor.walletAddress,
+      !reserved.value.created,
+    );
   }
 }

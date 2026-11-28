@@ -17,6 +17,8 @@ import {
 
 import type { HorizonGateway } from '../gateway';
 import { isValidPublicKey } from '../keypairs';
+import { findSuccessfulPaymentByMemo } from './find-memo-payment';
+import { memoFor } from './memo';
 
 export interface SubmitPaymentInput {
   /** Payment source; the transaction is signed by this account. */
@@ -26,6 +28,8 @@ export interface SubmitPaymentInput {
   assetCode: string;
   assetIssuer: string;
   amount: Stroops;
+  /** Optional idempotency memo; a matching successful tx is reused. */
+  memo?: string;
 }
 
 export interface SubmitPaymentResult {
@@ -39,6 +43,8 @@ export interface SubmitPaymentResult {
 /**
  * Submit a payment signed by its source account. Amounts are integer Stroops
  * and converted to Stellar's decimal wire format only at the SDK boundary.
+ * When a memo is supplied the leg is idempotent: a prior successful tx with
+ * the same source+memo is returned instead of paying twice.
  */
 export async function submitPayment(
   gateway: HorizonGateway,
@@ -69,22 +75,43 @@ export async function submitPayment(
     );
   }
 
+  const memo = input.memo?.trim();
+  const hasMemo = memo !== undefined && memo !== '';
+
+  if (hasMemo) {
+    const existing = await findSuccessfulPaymentByMemo(
+      gateway,
+      input.source,
+      memo,
+    );
+    if (!existing.ok) return existing;
+    if (existing.value !== null) {
+      return ok({
+        hash: existing.value,
+        source: input.source,
+        destination: input.destination,
+        assetCode: input.assetCode,
+        amount: input.amount,
+      });
+    }
+  }
+
   try {
     const source = await gateway.loadAccount(input.source);
-    const transaction = new TransactionBuilder(
+    const builder = new TransactionBuilder(
       new Account(input.source, source.sequenceNumber()),
       { fee: BASE_FEE, networkPassphrase },
-    )
-      .addOperation(
-        Operation.payment({
-          destination: input.destination,
-          asset,
-          amount: formatUnits(input.amount),
-        }),
-      )
-      .setTimeout(30)
-      .build();
+    ).addOperation(
+      Operation.payment({
+        destination: input.destination,
+        asset,
+        amount: formatUnits(input.amount),
+      }),
+    );
 
+    if (hasMemo) builder.addMemo(memoFor(memo));
+
+    const transaction = builder.setTimeout(30).build();
     transaction.sign(input.signer);
     const response = await gateway.submitTransaction(transaction);
 

@@ -3,23 +3,26 @@ import type { DomainEvent } from '../ports/event-bus.port';
 import { AppError } from '../shared/errors';
 import { err, ok, type Result } from '../shared/result';
 import type {
-  OrderFailedPayload,
   OrderSettledPayload,
-  ReconBreakPayload,
   SubscribeOrderDeps,
   SubscribeOrderResult,
 } from './subscribe.order';
+import { publishFailure, publishReconBreak } from './subscribe.saga.events';
+import { legMemo, recordedLeg } from './subscribe.saga.leg';
 
 const USDC = 'USDC';
 const USTBL = 'USTBL';
+
 async function collect(
   deps: SubscribeOrderDeps,
   order: Order,
   wallet: string,
+  resuming: boolean,
 ): Promise<Result<Order, AppError>> {
   const balance = await deps.chain.getBalance(wallet, USDC);
   if (!balance.ok) return balance;
-  if (balance.value < order.usdcAmountMinor) {
+  const short = balance.value < order.usdcAmountMinor;
+  if (short && !resuming) {
     return fail(
       deps,
       order,
@@ -27,18 +30,31 @@ async function collect(
     );
   }
 
+  // On a replay the balance may already reflect a collect whose hash was
+  // lost; submitPayment's memo scan decides whether to reuse it.
   const paid = await deps.chain.submitPayment(
     wallet,
     deps.issuerAddress,
     USDC,
     order.usdcAmountMinor,
+    legMemo(order.id, 'collect'),
   );
-  if (!paid.ok) return fail(deps, order, paid.error);
+  if (!paid.ok) {
+    if (short) {
+      return fail(
+        deps,
+        order,
+        new AppError('INSUFFICIENT_FUNDS', 'Investor has insufficient USDC'),
+      );
+    }
+    return fail(deps, order, paid.error);
+  }
 
   return deps.orders.updateStatus(order.id, 'COLLECTING', {
     collectTxHash: paid.value,
   });
 }
+
 async function mint(
   deps: SubscribeOrderDeps,
   order: Order,
@@ -50,22 +66,13 @@ async function mint(
     );
   }
 
-  const supply = await deps.chain.getBalance(deps.issuerAddress, USTBL);
-  if (!supply.ok) return supply;
-  if (supply.value < order.sharesMinor) {
-    return refund(
-      deps,
-      order,
-      wallet,
-      new AppError('INSUFFICIENT_FUNDS', 'Issuer has insufficient USTBL'),
-    );
-  }
-
+  // An issuing account creates its own asset; it needs no trustline balance.
   const minted = await deps.chain.submitPayment(
     deps.issuerAddress,
     wallet,
     USTBL,
     order.sharesMinor,
+    legMemo(order.id, 'mint'),
   );
   if (!minted.ok) return refund(deps, order, wallet, minted.error);
 
@@ -73,6 +80,7 @@ async function mint(
     mintTxHash: minted.value,
   });
 }
+
 async function settle(
   deps: SubscribeOrderDeps,
   order: Order,
@@ -124,6 +132,7 @@ async function settle(
 
   return ok({ order: settled.value });
 }
+
 async function fail(
   deps: SubscribeOrderDeps,
   order: Order,
@@ -135,6 +144,7 @@ async function fail(
   await publishFailure(deps, failed.value, 'FAILED', cause);
   return err(cause);
 }
+
 async function refund(
   deps: SubscribeOrderDeps,
   order: Order,
@@ -146,6 +156,7 @@ async function refund(
     wallet,
     USDC,
     order.usdcAmountMinor,
+    legMemo(order.id, 'refund'),
   );
 
   if (refunded.ok) {
@@ -171,76 +182,53 @@ async function refund(
   );
 }
 
-async function publishFailure(
-  deps: SubscribeOrderDeps,
-  order: Order,
-  status: 'FAILED' | 'REFUNDED',
-  cause: AppError,
-): Promise<void> {
-  const event: DomainEvent<'order.failed', OrderFailedPayload> = {
-    type: 'order.failed',
-    occurredAt: deps.clock.now().toISOString(),
-    payload: {
-      orderId: order.id,
-      investorId: order.investorId,
-      productId: order.productId,
-      status,
-      code: cause.code,
-      message: cause.message,
-    },
-  };
-
-  try {
-    await deps.events.publish(event);
-  } catch {
-    // The outcome is persisted; losing the notification must not change it.
-  }
-}
-
-async function publishReconBreak(
-  deps: SubscribeOrderDeps,
-  order: Order,
-  cause: AppError,
-): Promise<void> {
-  const event: DomainEvent<'recon.break', ReconBreakPayload> = {
-    type: 'recon.break',
-    occurredAt: deps.clock.now().toISOString(),
-    payload: {
-      orderId: order.id,
-      investorId: order.investorId,
-      usdcAmountMinor: order.usdcAmountMinor.toString(),
-      message: cause.message,
-    },
-  };
-
-  try {
-    await deps.events.publish(event);
-  } catch {
-    // The SUSPENSE row is the durable reconciliation signal.
-  }
-}
-
 /** Resume the compensatable saga from the order's persisted status. */
 export async function runSubscribeSaga(
   deps: SubscribeOrderDeps,
   order: Order,
   wallet: string,
+  resuming = false,
 ): Promise<Result<SubscribeOrderResult, AppError>> {
   let current = order;
 
   if (current.status === 'PENDING') {
-    const collected = await collect(deps, current, wallet);
+    const collected = await collect(deps, current, wallet, resuming);
     if (!collected.ok) return collected;
     current = collected.value;
   }
 
   if (current.status === 'COLLECTING') {
+    const decision = await recordedLeg(
+      deps.chain,
+      current.collectTxHash,
+      'collect',
+    );
+    if (!decision.ok) return decision;
+
+    if (decision.value === 'retry') {
+      const collected = await collect(deps, current, wallet, true);
+      if (!collected.ok) return collected;
+      current = collected.value;
+    }
+
     const minted = await mint(deps, current, wallet);
     if (!minted.ok) return minted;
     current = minted.value;
   }
 
-  if (current.status === 'MINTING') return settle(deps, current);
+  if (current.status === 'MINTING') {
+    const decision = await recordedLeg(deps.chain, current.mintTxHash, 'mint');
+    if (!decision.ok) return decision;
+
+    if (decision.value === 'retry') {
+      const minted = await mint(deps, current, wallet);
+      if (!minted.ok) return minted;
+      current = minted.value;
+    }
+
+    return settle(deps, current);
+  }
+
   if (current.status === 'SETTLED') return ok({ order: current });
 
   return err(

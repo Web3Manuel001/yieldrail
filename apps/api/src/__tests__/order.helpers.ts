@@ -53,7 +53,6 @@ export async function onboard(harness: Harness): Promise<void> {
 
 export function fund(harness: Harness): void {
   harness.setBalance(harness.investor.publicKey, 'USDC', parseUnits('100'));
-  harness.setBalance(harness.issuer.publicKey, 'USTBL', parseUnits('100'));
 }
 
 export function eventTypes(harness: Harness): string[] {

@@ -197,3 +197,28 @@ Notes:
 - The recorded `collect_tx_hash` is treated as proof that the collect was submitted; `ChainPort` has no transaction-lookup method, so the resume path verifies chain supply with `getBalance` and never calls `submitPayment` for a recorded leg again.
 - A crash between the chain submission and recording its hash can still leave an ambiguous PENDING/COLLECTING order; resolving that needs a transaction-status lookup in a later task.
 - The demo uses one investor signer from `INVESTOR_SECRET`; production custody/signing is out of scope. Crown jewels `money.ts`, `0001_ledger.sql`, `result.ts`, `errors.ts`, `chain.port.ts`, and the existing investor repository port are untouched.
+
+## Task 5c — Saga hardening: tx status + memo idempotency + issuer mint
+
+Agent: complete — awaiting reviewer verdict.
+
+Scope:
+- `ChainPort` (reviewer-owned extension, committed unchanged): `TxStatus`, optional `memo` on `submitPayment`, and `getTransactionStatus`.
+- Stellar operations: `memo.ts` keeps short memos as text and hashes anything over the 28-byte text limit (with Horizon value/match helpers); `find-memo-payment.ts` scans the source account's recent transactions for a successful matching memo; `get-transaction-status.ts` maps a Horizon lookup to `success | failed | pending | not_found`.
+- `submitPayment` now accepts a memo, attaches it to the transaction, and reuses a prior successful source+memo transaction instead of submitting again. Failed transactions are ignored, so a retry can safely re-submit.
+- New `HorizonServerGateway` adapts `Horizon.Server` (`transactions().transaction(hash)`, `forAccount`) to the narrow gateway; the composition root uses it when no test gateway is injected.
+- Saga legs carry `${order.id}:collect`, `:mint`, and `:refund`. Resume reads recorded collect/mint hashes through `getTransactionStatus`: success proceeds, failed retries the leg, and pending/not_found leaves the order in place and returns `CONFLICT` (HTTP 409). `runSubscribeSaga` takes a `resuming` flag so a replay whose balance was already debited by a lost collect still reaches the memo scan.
+- Mint fix: removed the issuer `getBalance(issuer, USTBL)` precondition. An issuing account creates its own asset and needs no trustline balance.
+- Event publishing moved to `subscribe.saga.events.ts`; memo/status decisions live in `subscribe.saga.leg.ts`. All files remain under the 250-line cap.
+
+Verification:
+- `pnpm test`: 25 files / 109 tests pass.
+- `pnpm typecheck`: all 7 workspace packages pass; `noUncheckedIndexedAccess` + `strict` ON.
+- `pnpm install --frozen-lockfile`: clean.
+- Tests prove: all four transaction statuses plus CHAIN/VALIDATION/INTERNAL mapping; text and hashed memo encoding/matching; the same memo submits once and returns the same hash; a different memo submits again; a failed same-memo tx is ignored; crash-before-hash replay reuses the collect even with a zero USDC balance; a pending recorded collect returns 409 and stays `COLLECTING`; a failed recorded collect retries; mint settles with no issuer USTBL balance; the refund path still records `refundTxHash`.
+- No crown jewels edited by the agent; the reviewer's `chain.port.ts` extension is included as provided. Money remains bigint-only; no secrets committed.
+
+Notes:
+- The memo scan covers the last 50 source transactions (demo scope); older legs rely on the recorded hash.
+- A crash after a successful refund but before recording `REFUNDED` remains out of scope. The refund memo makes a retried refund idempotent, but the saga still resumes from `COLLECTING`.
+- `HorizonGateway` transaction lookup methods are optional so existing mocks compile; the production wrapper always provides them.

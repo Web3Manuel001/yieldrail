@@ -113,4 +113,22 @@ describe('StellarChainAdapter payment and balance operations', () => {
     expect(usdc.value).toBe(75_000_000n);
     expect(ustbl.value).toBe(12_500_000n);
   });
+
+  it('looks up transaction status through the gateway', async () => {
+    const issuer = Keypair.random();
+    const mock = createGateway();
+    const adapter = new StellarChainAdapter({
+      gateway: {
+        ...mock.gateway,
+        getTransaction: async () => ({ hash: 'abc', successful: true }),
+      },
+      networkPassphrase: TESTNET_NETWORK_PASSPHRASE,
+      issuer: issuer.publicKey(),
+      signer: issuer,
+    });
+
+    const result = await adapter.getTransactionStatus('abc');
+    if (!result.ok) throw result.error;
+    expect(result.value).toBe('success');
+  });
 });
